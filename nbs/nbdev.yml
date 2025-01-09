@@ -1,0 +1,9 @@
+project:
+  output-dir: _docs
+
+website:
+  title: "02360018_final_project"
+  site-url: "https://techofer.github.io/02360018_final_project"
+  description: ""
+  repo-branch: main
+  repo-url: "https://github.com/techofer/02360018_final_project"
