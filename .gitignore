@@ -185,3 +185,5 @@ _docs/
 .quarto
 
 logs/
+
+.DS_Store

@@ -6,29 +6,29 @@
 __all__ = ['env', 'model', 'mean_reward', 'std_reward']
 
 # %% ../nbs/01_electricity_market_player.ipynb 3
-import gymnasium as gym
-from stable_baselines3 import PPO
+from sb3_contrib import MaskablePPO
 from stable_baselines3.common.evaluation import evaluate_policy
-from stable_baselines3.ppo.policies import MlpPolicy
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 from .electricity_market_env import ElectricityMarketEnv
 
 
 # %% ../nbs/01_electricity_market_player.ipynb 4
-env = ElectricityMarketEnv({
-    "battery_capacity": 10000000,
-    "init_state_of_charge": 4000000,
-    "init_current_demand_of_electricity": 1000,
-    "init_current_price": 100
-})
+# env_config = {
+#     "battery_capacity": 10000000,
+#     "init_state_of_charge": 4000000,
+#     "init_current_demand_of_electricity": 1000,
+#     "init_current_price": 100
+# }
+env = ElectricityMarketEnv()
 
-env.reset()
+env.reset(seed=12123)
 
-model = PPO(MlpPolicy, env, verbose=0)
+model = MaskablePPO("MlpPolicy", env, verbose=0)
 
 
 model.learn(total_timesteps=10_000)
-mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=100, warn=False)
+mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=1000)
 
 print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 

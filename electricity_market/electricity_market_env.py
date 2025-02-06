@@ -16,68 +16,90 @@ class ElectricityMarketEnv(gym.Env):
         # Environment Configuration
         if env_config is None:
             env_config = {}
+        # State of Environment
+        self._timestep = 0
+        self._init_state_of_charge = env_config.get('init_state_of_charge', 50)
+        self._current_state_of_charge = env_config.get('init_state_of_charge', 100)
         self._battery_capacity = env_config.get('battery_capacity', 100)
+        self._battery_efficiency = 0.95
+        self._battery_degradation = 0.999
         self._config = env_config
 
-        self.action_space = gym.spaces.Box(low=-self._battery_capacity, high=self._battery_capacity, shape=(1,), dtype=np.float64)
+        self.action_space = gym.spaces.Discrete(2 * self._battery_capacity + 1)
+        self.actions = list(range(-self._battery_capacity, self._battery_capacity + 1))
+        # observation space: (Battery SoC, Current electricity demand, Current market price)
         self.observation_space = gym.spaces.Box(low=np.array([0, 0, 0]),
                                                 high=np.array([self._battery_capacity, np.inf, np.inf]),
                                                 shape=(3,), dtype=np.float64)
 
 
-        # State of Environment
-        self._current_state_of_charge = env_config.get('init_state_of_charge', 100)
-        self._timestep = 0
-
     def _is_action_valid(self, action) -> bool:
-        target_state_of_charge = self._current_state_of_charge + action
+        charge_amount = self.actions[action]
+        target_state_of_charge = self._current_state_of_charge + charge_amount * self._battery_efficiency
         return 0 < target_state_of_charge < self._battery_capacity
 
     def step(self, action):
-        action = action[0]
+        charge_amount = self.actions[action]
         self._timestep += 1
-        done = False
+        done = self._battery_efficiency == 0
         truncated = False
 
+        demand = self._demand_of_electricity()
+        price = self._price()
         if not self._is_action_valid(action):
-            return self._get_obs(), 0, done, truncated, {}
+            truncated = True
+            return self._get_obs(), -1000, done, truncated, {}
 
-        reward = self._calculate_reward(action)
-        self._current_state_of_charge += action
+        self._current_state_of_charge += charge_amount * self._battery_efficiency
 
+        self._battery_capacity *= self._battery_degradation
+        reward = self._calculate_reward(charge_amount, demand, price)
+        return self._get_obs(), reward, done, truncated, {}
 
-        observation = self._get_obs()
+    def _calculate_reward(self, charge_amount, demand, price):
+        """ Reward function considering price, demand, battery health, and grid stability. """
+        if charge_amount > 0:
+            reward = -demand * price
+        else:
+            reward = (charge_amount - demand) * price
+        if self._current_state_of_charge < 20 or self._current_state_of_charge > 80:
+            reward *= 0.9
 
-        return observation, reward, done, truncated, {}
+        return reward
 
-    def _calculate_reward(self, action) -> float:
-        return  (action - self._demand_of_electricity()) * self._price()
+    def _demand_of_electricity(self):
+        base_demand = 100 + 50 * np.sin(self._timestep * 2 * np.pi)  # Cyclical demand
+        noise = np.random.normal(0, 10)  # Random noise
+        return max(0, base_demand + noise)
 
-    def _demand_of_electricity(self) -> float:
-        noise_std = 5
-        demand = 120 * np.exp(-((self._timestep - 0.4) ** 2) / (2 * (0.05 ** 2))) + 100 * np.exp(-((self._timestep - 0.7) ** 2) / (2 * (0.1 ** 2)))
-        noise = np.random.normal(0, noise_std)
-        return demand + noise
+    def _price(self):
+        """ Simulates electricity price changes based on demand and supply. """
+        base_price = 30 + 50 * np.sin(self._timestep * 2 * np.pi)  # Cyclical price changes
+        noise = np.random.normal(0, 5)  # Random price fluctuations
+        return max(0, base_price + noise)
 
-
-    def _price(self) -> float:
-        noise_std = 5
-        price = 120 * np.exp(-((self._timestep - 0.4) ** 2) / (2 * (0.05 ** 2))) + 100 * np.exp(-((self._timestep - 0.7) ** 2) / (2 * (0.1 ** 2)))
-        noise = np.random.normal(0, noise_std)
-        return price + noise
-
-    def reset(self, *, seed=None, options=None, **kwargs):
-        # We need the following line to seed self.np_random
+    def reset(self, *, seed=None, options=None):
+        """ Resets the environment to the initial state. """
         super().reset(seed=seed)
-
-        self._current_state_of_charge = self._config.get('init_state_of_charge', 100)
         self._timestep = 0
+        self._init_state_of_charge = self._config.get('init_state_of_charge', 50)
+        self._current_state_of_charge = self._config.get('init_state_of_charge', 100)
+        self._battery_capacity = self._config.get('battery_capacity', 100)
+        self._battery_efficiency = 0.95
+        self._battery_degradation = 0.999
+        return self._get_obs(), {}
 
-        observation = self._get_obs()
-        return observation, {}
+    def action_masks(self):
+        """Generate a boolean mask of valid actions for `MaskablePPO`."""
+        return np.array([self._is_action_valid(i) for i in range(self.action_space.n)], dtype=bool)
 
     def _get_obs(self):
-        return np.array([self._current_state_of_charge, float(self._demand_of_electricity()), float(self._price())])
+        """ Returns the current observation (state). """
+        return np.array([
+            self._current_state_of_charge,  # Battery SoC
+            self._demand_of_electricity(),  # Current electricity demand
+            self._price()  # Current market price
+        ])
 
 
 
