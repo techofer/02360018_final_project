@@ -8,12 +8,15 @@ __all__ = ['ElectricityMarketEnv']
 # %% ../nbs/00_electricity_market_env.ipynb 3
 import gymnasium as gym
 import numpy as np
+from gymnasium.envs.registration import register
 
 # %% ../nbs/00_electricity_market_env.ipynb 4
 class ElectricityMarketEnv(gym.Env):
-    def __init__(self, env_config):
+    def __init__(self, env_config=None):
         # Environment Configuration
-        self._battery_capacity = env_config['battery_capacity']
+        if env_config is None:
+            env_config = {}
+        self._battery_capacity = env_config.get('battery_capacity', 100)
         self._config = env_config
 
         self.action_space = gym.spaces.Box(low=-self._battery_capacity, high=self._battery_capacity, shape=(1,), dtype=np.float64)
@@ -23,7 +26,7 @@ class ElectricityMarketEnv(gym.Env):
 
 
         # State of Environment
-        self._current_state_of_charge = env_config['init_state_of_charge']
+        self._current_state_of_charge = env_config.get('init_state_of_charge', 100)
         self._timestep = 0
 
     def _is_action_valid(self, action) -> bool:
@@ -33,7 +36,7 @@ class ElectricityMarketEnv(gym.Env):
     def step(self, action):
         action = action[0]
         self._timestep += 1
-        done = self._timestep == 10
+        done = False
         truncated = False
 
         if not self._is_action_valid(action):
@@ -67,7 +70,7 @@ class ElectricityMarketEnv(gym.Env):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
-        self._current_state_of_charge = self._config['init_state_of_charge']
+        self._current_state_of_charge = self._config.get('init_state_of_charge', 100)
         self._timestep = 0
 
         observation = self._get_obs()
@@ -77,3 +80,9 @@ class ElectricityMarketEnv(gym.Env):
         return np.array([self._current_state_of_charge, float(self._demand_of_electricity()), float(self._price())])
 
 
+
+# %% ../nbs/00_electricity_market_env.ipynb 5
+register(
+    id='ElectricityMarketEnv-v0',
+    entry_point='electricity_market.electricity_market_env:ElectricityMarketEnv',
+)

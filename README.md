@@ -11,16 +11,16 @@ documentation.
 If you are new to using `nbdev` here are some useful pointers to get you
 started.
 
-### Install 02360018_final_project in Development mode
+### Install electricity_market in Development mode
 
 ``` sh
-# make sure 02360018_final_project package is installed in development mode
+# make sure electricity_market package is installed in development mode
 $ pip install -e .
 
 # make changes under nbs/ directory
 # ...
 
-# compile to have changes apply to 02360018_final_project
+# compile to have changes apply to electricity_market
 $ nbdev_prepare
 ```
 
