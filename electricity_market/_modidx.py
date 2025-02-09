@@ -35,7 +35,4 @@ d = { 'settings': { 'branch': 'main',
                                                                                                                                     'electricity_market/electricity_market_env.py'),
                                                            'electricity_market.electricity_market_env.Weather': ( 'electricity_market_env.html#weather',
                                                                                                                   'electricity_market/electricity_market_env.py')},
-            'electricity_market.electricity_market_player': { 'electricity_market.electricity_market_player.mask_fn': ( 'electricity_market_player.html#mask_fn',
-                                                                                                                        'electricity_market/electricity_market_player.py'),
-                                                              'electricity_market.electricity_market_player.optimize_agent': ( 'electricity_market_player.html#optimize_agent',
-                                                                                                                               'electricity_market/electricity_market_player.py')}}}
+            'electricity_market.electricity_market_player': {}}}
