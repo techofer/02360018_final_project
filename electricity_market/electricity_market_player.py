@@ -26,7 +26,22 @@ from .electricity_market_env import ElectricityMarketEnv
 
 
 # %% ../nbs/01_electricity_market_player.ipynb 4
-def collect_episode_rewards(model, env, n_episodes=10, deterministic=True):
+TOTAL_TIMESTEPS = 1000
+N_EPISODES = 10
+N_TRAILS = 10
+seeds = [123456, 234567, 345678, 456789, 567890]
+if TOTAL_TIMESTEPS % N_EPISODES != 0:
+    raise ValueError("Total_timesteps must be a multiple of n_episodes")
+frames = np.array(list(range(TOTAL_TIMESTEPS // N_EPISODES, TOTAL_TIMESTEPS + 1, TOTAL_TIMESTEPS // N_EPISODES)), dtype=int)
+
+# Decided On granularity of 100 Wh
+env_config = {
+    "max_timestep": TOTAL_TIMESTEPS,
+}
+results = {}
+
+# %% ../nbs/01_electricity_market_player.ipynb 5
+def collect_episode_rewards(model, env, n_episodes=N_EPISODES, deterministic=True):
     episode_rewards, _ = evaluate_policy(
         model, env, deterministic=deterministic, use_masking=True,
         return_episode_rewards=True, n_eval_episodes=n_episodes
@@ -37,19 +52,7 @@ def collect_episode_rewards(model, env, n_episodes=10, deterministic=True):
 def mask_fn(env):
     return env.action_masks()
 
-TOTAL_TIMESTEPS = 100
-N_EPISODES = 5
-N_TRAILS = 5
-seeds = [123456, 234567, 345678, 456789, 567890]
-if TOTAL_TIMESTEPS % N_EPISODES != 0:
-    raise ValueError("Total_timesteps must be a multiple of n_episodes")
-frames = np.array(list(range(TOTAL_TIMESTEPS // N_EPISODES, TOTAL_TIMESTEPS + 1, TOTAL_TIMESTEPS // N_EPISODES)), dtype=int)
-env_config = {
-    "max_timestep": TOTAL_TIMESTEPS,
-}
-results = {}
-
-# %% ../nbs/01_electricity_market_player.ipynb 5
+# %% ../nbs/01_electricity_market_player.ipynb 6
 def evaluate_maskable_ppo_on_environment(hyperparameters=None, n_episodes=N_EPISODES):
     global seeds, frames, env_config
 
@@ -85,7 +88,7 @@ def evaluate_maskable_ppo_on_environment(hyperparameters=None, n_episodes=N_EPIS
     print("\nCollected Rewards (shape: seeds x checkpoints x episodes):\n", all_rewards)
     return all_rewards
 
-# %% ../nbs/01_electricity_market_player.ipynb 6
+# %% ../nbs/01_electricity_market_player.ipynb 7
 def plot_evaluation_results(evaluation_results):
     global seeds, frames, env_config
     # Extract algorithm names (which are actually keys in the dictionary)
@@ -213,12 +216,18 @@ def plot_evaluation_results(evaluation_results):
 
 
 
-# %% ../nbs/01_electricity_market_player.ipynb 7
+# %% ../nbs/01_electricity_market_player.ipynb 8
 def optimize_maskable_ppo_agent(trial, n_episodes=N_EPISODES):
     global seeds
-    learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
-    n_steps = trial.suggest_int('n_steps', 16, 2048, log=True)
+    learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+    n_steps = trial.suggest_int('n_steps', 32, 1024, log=True)
     batch_size = trial.suggest_int('batch_size', 16, 256, log=True)
+    gamma = trial.suggest_float('gamma', 0.9, 0.9999)
+    gae_lambda = trial.suggest_float('gae_lambda', 0.8, 1.0)
+    ent_coef = trial.suggest_float('ent_coef', 0.0, 0.02)
+    vf_coef = trial.suggest_float('vf_coef', 0.1, 1.0)
+    clip_range = trial.suggest_float('clip_range', 0.1, 0.3)
+    max_grad_norm = trial.suggest_float('max_grad_norm', 0.1, 1.0)
 
     trial_seed_rewards = []
 
@@ -233,11 +242,17 @@ def optimize_maskable_ppo_agent(trial, n_episodes=N_EPISODES):
             learning_rate=learning_rate,
             n_steps=n_steps,
             batch_size=batch_size,
+            gamma=gamma,
+            gae_lambda=gae_lambda,
+            ent_coef=ent_coef,
+            vf_coef=vf_coef,
+            clip_range=clip_range,
+            max_grad_norm=max_grad_norm,
             verbose=0,
             seed=seed
         )
 
-        model.learn(total_timesteps=10_000, use_masking=True)
+        model.learn(total_timesteps=TOTAL_TIMESTEPS, use_masking=True)
         episode_rewards = collect_episode_rewards(model, env, n_episodes=n_episodes, deterministic=True)
 
         seed_avg_reward = np.mean(episode_rewards)
@@ -246,17 +261,17 @@ def optimize_maskable_ppo_agent(trial, n_episodes=N_EPISODES):
 
     return aggregated_performance
 
-# %% ../nbs/01_electricity_market_player.ipynb 9
+# %% ../nbs/01_electricity_market_player.ipynb 10
 results["MaskablePPO_Baseline"] = evaluate_maskable_ppo_on_environment(hyperparameters=None, n_episodes=N_EPISODES)
 
-# %% ../nbs/01_electricity_market_player.ipynb 11
-study = optuna.create_study(direction="maximize")
+# %% ../nbs/01_electricity_market_player.ipynb 12
+study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
 study.optimize(optimize_maskable_ppo_agent, n_trials=N_TRAILS)
 
 print("Best trial:", study.best_trial)
 
-# %% ../nbs/01_electricity_market_player.ipynb 13
+# %% ../nbs/01_electricity_market_player.ipynb 14
 results["MaskablePPO_Optimized"] = evaluate_maskable_ppo_on_environment(hyperparameters=study.best_trial.params, n_episodes=N_EPISODES)
 
-# %% ../nbs/01_electricity_market_player.ipynb 14
+# %% ../nbs/01_electricity_market_player.ipynb 15
 plot_evaluation_results(results)

@@ -30,19 +30,35 @@ WEATHER_OPTIONS, WEATHER_PROBABILITIES = zip(*WEATHER_PROBABILITIES_MAP.items())
 # %% ../nbs/00_electricity_market_env.ipynb 5
 class ElectricityMarketEnv(gym.Env):
     def __init__(self, env_config=None):
-        # Environment Configuration
         if env_config is None:
             env_config = {}
-        # State of Environment
-        self._timestep = 0
-        self._init_state_of_charge = env_config.get('init_state_of_charge', 50)
-        self._current_state_of_charge = self._init_state_of_charge
-        self._battery_capacity = env_config.get('battery_capacity', 100)
-        self._production_capacity = env_config.get('production_capacity', 50)
-        self._max_timestep = env_config.get('max_timestep', 10_000)
-        self._battery_efficiency = 0.95
-        self._battery_degradation = 0.999
         self._config = env_config
+        self._timestep = 0
+        # Decided On granularity of 100 Wh
+        if "battery_capacity" not in self._config:
+            self._config["battery_capacity"] = 250  # default: 25 kWh
+        self._battery_capacity = self._config["battery_capacity"]
+
+        if "init_state_of_charge" not in self._config:
+            self._config["init_state_of_charge"] = 200  # default: 20 kWh
+
+        self._init_state_of_charge = self._config["init_state_of_charge"]
+        self._current_state_of_charge = self._init_state_of_charge
+
+        if "production_capacity" not in self._config:
+            self._config["production_capacity"] = 720 / 6  # default: 72 kWh/day
+        self._production_capacity = self._config["production_capacity"]
+
+        # timestep is 4 hours
+        if "max_timestep" not in self._config:
+            self._config["max_timestep"] = 10_000
+        self._max_timestep = self._config["max_timestep"]
+
+        self._battery_degradation = 0.999
+
+        # battery safe range, in percents
+        self._battery_safe_range_percents = (20, 80)
+
         self.__weather = self._get_weather()
         self.action_space = gym.spaces.Discrete(2 * self._battery_capacity + 1)
         self.actions = list(range(-self._battery_capacity, self._battery_capacity + 1))
@@ -55,21 +71,24 @@ class ElectricityMarketEnv(gym.Env):
     def _is_action_valid(self, charge_amount) -> bool:
         if charge_amount > self._production:
             return False
-        target_state_of_charge = self._current_state_of_charge + charge_amount * self._battery_efficiency
+        target_state_of_charge = self._current_state_of_charge + charge_amount
 
         return 0 <= target_state_of_charge <= self._battery_capacity
 
     def step(self, action):
         charge_amount = self.actions[action]
-        done = self._battery_efficiency == 0 or self._timestep >= self._max_timestep
+        done = self._battery_capacity == 0 or self._timestep >= self._max_timestep
         truncated = False
         if not self._is_action_valid(charge_amount):
             print("Action {} is not valid".format(action))
             truncated = True
             return self._get_obs(), 0, done, truncated, {}
-        self._current_state_of_charge += charge_amount * self._battery_efficiency
+        self._current_state_of_charge += charge_amount
 
-        # self._battery_capacity *= self._battery_degradation
+        self._battery_capacity *= self._battery_degradation
+        # if violated the safe range, extra degradation
+        if self._is_safe_range_violation:
+            self._battery_capacity *= self._battery_degradation
         reward = self._reward(charge_amount)
         observations = self._get_obs()
         self._timestep += 1
@@ -86,6 +105,11 @@ class ElectricityMarketEnv(gym.Env):
 
     @property
     def _production(self):
+        # Solar panels doesn't produce at night.
+        # assuming night is 20:00-08:00 (dark hours)
+        if self._timestep % 6 < 2 or self._timestep % 6 > 5:
+            return 0
+        # Solar panels doesn't produce well on cloudy days
         match self._weather:
             case Weather.SUNNY:
                 return self._production_capacity
@@ -101,7 +125,8 @@ class ElectricityMarketEnv(gym.Env):
             reward = 0
         else:
             reward = (abs(charge_amount) - self._demand_of_electricity) * self._sell_price
-        if self._current_state_of_charge < 20 or self._current_state_of_charge > 80:
+        # penalty for violating the safe range
+        if self._is_safe_range_violation:
             reward *= 0.9
 
         return reward
@@ -112,6 +137,15 @@ class ElectricityMarketEnv(gym.Env):
         noise = np.random.normal(0, 10)  # Random noise
         return abs(base_demand + noise)
 
+    @property
+    def _is_safe_range_violation(self):
+        low, high = self._battery_safe_range
+        return self._current_state_of_charge < low or self._current_state_of_charge > high
+
+    @property
+    def _battery_safe_range(self):
+        low, high = self._battery_safe_range_percents
+        return low * self._battery_capacity / 100, high * self._battery_capacity / 100
     @property
     def _buy_price(self):
         ...
@@ -128,10 +162,8 @@ class ElectricityMarketEnv(gym.Env):
         """ Resets the environment to the initial state. """
         super().reset(seed=seed)
         self._timestep = 0
-        self._init_state_of_charge = self._config.get('init_state_of_charge', 50)
         self._current_state_of_charge = self._init_state_of_charge
-        self._battery_capacity = self._config.get('battery_capacity', 100)
-        self._battery_efficiency = 0.95
+        self._battery_capacity = self._config["battery_capacity"]
         self._battery_degradation = 0.999
         self.__weather = self._get_weather()
         return self._get_obs(), {}
@@ -140,7 +172,8 @@ class ElectricityMarketEnv(gym.Env):
         """Generate a boolean mask of valid actions for `MaskablePPO`."""
         mask = np.array([self._is_action_valid(self.actions[i]) for i in range(self.action_space.n)], dtype=bool)
         if not np.any(mask):  # If all actions are invalid, force one to be valid
-            mask[np.random.randint(len(mask) // 2)] = True
+            mask[len(mask) // 2] = True
+            print(np.any(mask))
         return mask
 
     def _get_obs(self):
