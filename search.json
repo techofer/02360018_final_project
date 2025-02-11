@@ -1,0 +1,62 @@
+[
+  {
+    "objectID": "electricity_market_env.html",
+    "href": "electricity_market_env.html",
+    "title": "electricity_market_env",
+    "section": "",
+    "text": "source\n\nWeather\n\n Weather (value, names=None, module=None, qualname=None, type=None,\n          start=1)\n\nAn enumeration.\n\nsource\n\n\nSeason\n\n Season (value, names=None, module=None, qualname=None, type=None,\n         start=1)\n\nAn enumeration.\n\nsource\n\n\nElectricityMarketEnv\n\n ElectricityMarketEnv (env_config:dict|None=None,\n                       render_mode:str|None=None)\n\n*The main Gymnasium class for implementing Reinforcement Learning Agents environments.\nThe class encapsulates an environment with arbitrary behind-the-scenes dynamics through the :meth:step and :meth:reset functions. An environment can be partially or fully observed by single agents. For multi-agent environments, see PettingZoo.\nThe main API methods that users of this class need to know are:\n\n:meth:step - Updates an environment with actions returning the next agent observation, the reward for taking that actions, if the environment has terminated or truncated due to the latest action and information from the environment about the step, i.e. metrics, debug info.\n:meth:reset - Resets the environment to an initial state, required before calling step. Returns the first agent observation for an episode and information, i.e. metrics, debug info.\n:meth:render - Renders the environments to help visualise what the agent see, examples modes are “human”, “rgb_array”, “ansi” for text.\n:meth:close - Closes the environment, important when external software is used, i.e. pygame for rendering, databases\n\nEnvironments have additional attributes for users to understand the implementation\n\n:attr:action_space - The Space object corresponding to valid actions, all valid actions should be contained within the space.\n:attr:observation_space - The Space object corresponding to valid observations, all valid observations should be contained within the space.\n:attr:spec - An environment spec that contains the information used to initialize the environment from :meth:gymnasium.make\n:attr:metadata - The metadata of the environment, e.g. {\"render_modes\": [\"rgb_array\", \"human\"], \"render_fps\": 30}. For Jax or Torch, this can be indicated to users with \"jax\"=True or \"torch\"=True.\n:attr:np_random - The random number generator for the environment. This is automatically assigned during super().reset(seed=seed) and when assessing :attr:np_random.\n\n.. seealso:: For modifying or extending environments use the :class:gymnasium.Wrapper class\nNote: To get reproducible sampling of actions, a seed can be set with env.action_space.seed(123).\nNote: For strict type checking (e.g. mypy or pyright), :class:Env is a generic class with two parameterized types: ObsType and ActType. The ObsType and ActType are the expected types of the observations and actions used in :meth:reset and :meth:step. The environment’s :attr:observation_space and :attr:action_space should have type Space[ObsType] and Space[ActType], see a space’s implementation to find its parameterized type.*",
+    "crumbs": [
+      "electricity_market_env"
+    ]
+  },
+  {
+    "objectID": "electricity_market_player.html",
+    "href": "electricity_market_player.html",
+    "title": "electricity_market_player",
+    "section": "",
+    "text": "source\n\nmask_fn\n\n mask_fn\n          (env:electricity_market.electricity_market_env.ElectricityMarket\n          Env)\n\n\nsource\n\n\ncollect_episode_rewards\n\n collect_episode_rewards (model:sb3_contrib.ppo_mask.ppo_mask.MaskablePPO,\n                          env:electricity_market.electricity_market_env.El\n                          ectricityMarketEnv, n_episodes:int=10,\n                          deterministic:bool=True, render:bool=False)\n\n\nsource\n\n\nevaluate_maskable_ppo_on_environment\n\n evaluate_maskable_ppo_on_environment (hyperparameters:dict|None=None,\n                                       n_episodes:int=10,\n                                       render:bool=False)\n\n\nsource\n\n\nplot_evaluation_results\n\n plot_evaluation_results (evaluation_results:dict)\n\n\nsource\n\n\noptimize_maskable_ppo_agent\n\n optimize_maskable_ppo_agent (trial, n_episodes:int=10)\n\n\n\nEvaluation MaskablePPO with default hyperparameters on ElectricityMarketEnv\n\n\nHypertuning MaskablePPO with default hyperparameters on ElectricityMarketEnv\n\n\nEvaluation MaskablePPO with optimized hyperparameters on ElectricityMarketEnv",
+    "crumbs": [
+      "electricity_market_player"
+    ]
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "02360018_final_project",
+    "section": "",
+    "text": "This file will become your README and also the index of your documentation.",
+    "crumbs": [
+      "02360018_final_project"
+    ]
+  },
+  {
+    "objectID": "index.html#developer-guide",
+    "href": "index.html#developer-guide",
+    "title": "02360018_final_project",
+    "section": "Developer Guide",
+    "text": "Developer Guide\nIf you are new to using nbdev here are some useful pointers to get you started.\n\nInstall electricity_market in Development mode\n# make sure electricity_market package is installed in development mode\n$ pip install -e .\n\n# make changes under nbs/ directory\n# ...\n\n# compile to have changes apply to electricity_market\n$ nbdev_prepare",
+    "crumbs": [
+      "02360018_final_project"
+    ]
+  },
+  {
+    "objectID": "index.html#usage",
+    "href": "index.html#usage",
+    "title": "02360018_final_project",
+    "section": "Usage",
+    "text": "Usage\n\nInstallation\nInstall latest from the GitHub repository:\n$ pip install git+https://github.com/techofer/02360018_final_project.git\nor from conda\n$ conda install -c techofer 02360018_final_project\nor from pypi\n$ pip install 02360018_final_project\n\n\nDocumentation\nDocumentation can be found hosted on this GitHub repository’s pages. Additionally you can find package manager specific guidelines on conda and pypi respectively.",
+    "crumbs": [
+      "02360018_final_project"
+    ]
+  },
+  {
+    "objectID": "index.html#how-to-use",
+    "href": "index.html#how-to-use",
+    "title": "02360018_final_project",
+    "section": "How to use",
+    "text": "How to use\nFill me in please! Don’t forget code examples:\n\n1+1\n\n2",
+    "crumbs": [
+      "02360018_final_project"
+    ]
+  }
+]
