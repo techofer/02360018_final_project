@@ -16,6 +16,9 @@ import numpy as np
 from gymnasium.core import RenderFrame
 from gymnasium.envs.registration import register
 from matplotlib import pyplot as plt
+from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.monitor import Monitor
 
 # %% ../nbs/00_electricity_market_env.ipynb 4
 class Season(Enum):
@@ -101,12 +104,18 @@ class ElectricityMarketEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=np.array([0, 0, 0, 0, 0, 0]),
             high=np.array([
-                self._current_state_of_charge,  # Battery SoC
-                self._battery_capacity,  # current battery capacity
-                self._battery_safe_range[0],  # battery safe range low boundary
-                self._battery_safe_range[1],  # battery safe range high boundary
-                self._max_demand_of_electricity,  # Current electricity demand,
-                self._max_price  # Current market price
+                # Battery SoC
+                self._current_state_of_charge / self._battery_capacity,
+                # current battery capacity
+                self._battery_capacity / self._battery_capacity,
+                # battery safe range low boundary
+                self._battery_safe_range[0] / self._battery_capacity,
+                # battery safe range high boundary
+                self._battery_safe_range[1] / self._battery_capacity,
+                # Current electricity demand,
+                self._max_demand_of_electricity / self._max_demand_of_electricity,
+                # Current market price
+                self._max_price / self._max_price
             ]),
             shape=(6,), dtype=np.float64
         )
@@ -287,12 +296,18 @@ class ElectricityMarketEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         """ Returns the current observation (state). """
         return np.array([
-            self._current_state_of_charge,  # Battery SoC
-            self._battery_capacity,  # current battery capacity
-            self._battery_safe_range[0],  # battery safe range low boundary
-            self._battery_safe_range[1],  # battery safe range high boundary
-            self._demand_of_electricity,  # Current electricity demand
-            self._sell_price  # Current market price
+            # Battery SoC
+            self._current_state_of_charge / self._battery_capacity,
+            # current battery capacity
+            self._battery_capacity / self._battery_capacity,
+            # battery safe range low boundary
+            self._battery_safe_range[0] / self._battery_capacity,
+            # battery safe range high boundary
+            self._battery_safe_range[1] / self._battery_capacity,
+            # Current electricity demand
+            self._demand_of_electricity / self._max_demand_of_electricity,
+            # Current market price
+            self._sell_price / self._max_price
         ], dtype=np.float64)
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:

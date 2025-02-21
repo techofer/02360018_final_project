@@ -9,6 +9,7 @@ __all__ = ['TOTAL_TIMESTEPS', 'N_EPISODES', 'N_TRAILS', 'N_JOBS', 'seeds', 'fram
 
 # %% ../nbs/01_electricity_market_player.ipynb 3
 from abc import ABC
+from itertools import combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,7 +31,7 @@ from .electricity_market_env import ElectricityMarketEnv
 
 
 # %% ../nbs/01_electricity_market_player.ipynb 4
-TOTAL_TIMESTEPS = 10_000 # 100_000
+TOTAL_TIMESTEPS = 100 # 100_000
 N_EPISODES = 10
 N_TRAILS = 10
 N_JOBS = 7
@@ -305,8 +306,8 @@ def plot_evaluation_results(evaluation_results: dict) -> None:
         return np.array([
             metrics.aggregate_median(x),
             metrics.aggregate_iqm(x),
-            metrics.aggregate_mean(x),
-        ])
+            metrics.aggregate_mean(x)
+        ], dtype=np.float64)
 
     # For each algorithm, we need to apply aggregate_func to the data (which has the shape (num_seeds, num_checkpoints, num_episodes))
     def aggregate_over_checkpoints(evaluation_results):
@@ -343,8 +344,8 @@ def plot_evaluation_results(evaluation_results: dict) -> None:
     # =============================================================================
     # 2. Probability of Improvement (if comparing two algorithms)
     # =============================================================================
-    if len(algorithms) == 2:
-        alg1, alg2 = algorithms
+
+    for alg1, alg2 in combinations(algorithms, 2):
         algorithm_pairs = {f"{alg1},{alg2}": (evaluation_results[alg1], evaluation_results[alg2])}
 
         average_probabilities, average_prob_cis = rly.get_interval_estimates(
@@ -418,6 +419,35 @@ def plot_evaluation_results(evaluation_results: dict) -> None:
     ax.set_ylim([-1, 1])
     plt.title("Performance Profiles (Non-Linear Scaling)")
     plt.tight_layout()
+    plt.show()
+
+    # =============================================================================
+    # 5. Learning Curves (One plot for all algorithms)
+    # =============================================================================
+    plt.figure(figsize=(12, 8))
+
+    for algorithm in algorithms:
+        results = evaluation_results[algorithm]
+
+        cumulative_rewards = []
+
+        for index, frame in enumerate(frames):
+            cumulative_sum = np.sum(results[:, :index+1, :], axis=1)
+            cumulative_mean = np.mean(cumulative_sum)
+            cumulative_rewards.append(cumulative_mean)
+
+        cumulative_rewards = np.array(cumulative_rewards)
+        plt.plot(frames, cumulative_rewards, label=algorithm, marker='o', markersize=5, linestyle='-')
+
+    # Customize the plot
+    plt.xlabel('Frames (Cumulative Timesteps)')
+    plt.ylabel('Mean Reward')
+    plt.title('Learning Curves of Multiple Algorithms with Confidence Intervals')
+    plt.legend(loc='best')
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Show the plot
     plt.show()
 
 # %% ../nbs/01_electricity_market_player.ipynb 10
