@@ -27,7 +27,7 @@ class Season(Enum):
 class Weather(Enum):
     SUNNY = 1
     CLOUDY = 2
-    PARTIAL_CLOUDY = 4
+    PARTIAL_CLOUDY = 3
 
 WEATHER_PROBABILITIES_MAP_PER_SEASON = {
     Season.FALL: {
@@ -70,7 +70,6 @@ class ElectricityMarketEnv(gym.Env):
 
         if "init_state_of_charge" not in self._config:
             self._config["init_state_of_charge"] = 200  # default: 20 kWh
-
         self._init_state_of_charge = self._config["init_state_of_charge"]
         self._current_state_of_charge = self._init_state_of_charge
 
@@ -102,7 +101,7 @@ class ElectricityMarketEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=np.array([0, 0, 0, 0, 0, 0]),
             high=np.array([
-                self._battery_capacity,  # Battery SoC
+                self._current_state_of_charge,  # Battery SoC
                 self._battery_capacity,  # current battery capacity
                 self._battery_safe_range[0],  # battery safe range low boundary
                 self._battery_safe_range[1],  # battery safe range high boundary
@@ -127,13 +126,19 @@ class ElectricityMarketEnv(gym.Env):
         done = self._battery_capacity == 0 or self._timestep >= self._max_timestep
         truncated = False
         if not self._is_action_valid(action):
-            print("Action {} is not valid".format(action))
-            truncated = True
+            # print("Action {} is not valid".format(action))
+            # truncated = True
+            # observations = self._get_obs()
+            reward = -1
+            self._timestep += 1
+            self.__weather = self._get_weather()
+            self.__sell_price = self._get_sell_price()
+            self.__demand_of_electricity = self._get_demand_of_electricity()
             observations = self._get_obs()
             self._episode_obs.append(observations)
-            return observations, 0, done, truncated, {}
-        self._current_state_of_charge += charge_amount
+            return observations, reward, done, truncated, {}
 
+        self._current_state_of_charge += charge_amount
         self._battery_capacity *= self._battery_degradation
         # if violated the safe range, extra degradation
         if self._is_safe_range_violation:
@@ -208,7 +213,7 @@ class ElectricityMarketEnv(gym.Env):
 
         # penalty for violating the safe range
         if self._is_safe_range_violation:
-            reward *= 0.3
+            normalized_reward *= 0.3
 
         return normalized_reward
 
@@ -260,14 +265,15 @@ class ElectricityMarketEnv(gym.Env):
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         """ Resets the environment to the initial state. """
         super().reset(seed=seed, options=options)
-        self._episode_obs = []
+        observations = self._get_obs()
+        self._episode_obs = [observations]
         self._timestep = 0
         self._current_state_of_charge = self._init_state_of_charge
         self._battery_capacity = self._config["battery_capacity"]
         self.__weather = self._get_weather()
         self.__sell_price = self._get_sell_price()
         self.__demand_of_electricity = self._get_demand_of_electricity()
-        return self._get_obs(), {}
+        return observations, {}
 
     def action_masks(self) -> np.ndarray:
         """Generate a boolean mask of valid actions for `MaskablePPO`."""
