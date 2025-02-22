@@ -132,12 +132,9 @@ class ElectricityMarketEnv(gym.Env):
 
     def step(self, action: int) -> tuple:
         charge_amount = self._charge_amount(action)
-        done = self._battery_capacity == 0 or self._timestep >= self._max_timestep
-        truncated = False
+        done = self._battery_capacity == 0
+        truncated = self._timestep >= self._max_timestep
         if not self._is_action_valid(action):
-            # print("Action {} is not valid".format(action))
-            # truncated = True
-            # observations = self._get_obs()
             reward = -1
             self._timestep += 1
             self.__weather = self._get_weather()
@@ -240,7 +237,7 @@ class ElectricityMarketEnv(gym.Env):
             demand *= self._high_demand_seasons_demand_factor
         if self._is_dark_hours:
             demand *= self._night_demand_factor
-        noise = np.random.normal(-0.2 * demand, 0.2 * demand)
+        noise = np.random.uniform(-0.2 * demand, 0.2 * demand)
         return demand + noise
 
     @property
@@ -264,7 +261,7 @@ class ElectricityMarketEnv(gym.Env):
             price *= self._night_price_factor
         if self._season in (Season.WINTER, Season.SUMMER):
             price *= self._high_demand_seasons_price_factor
-        noise = np.random.normal(-price * 0.2, price * 0.2)
+        noise = np.random.uniform(-price * 0.2, price * 0.2)
         return price + noise
 
     @property
@@ -274,14 +271,14 @@ class ElectricityMarketEnv(gym.Env):
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         """ Resets the environment to the initial state. """
         super().reset(seed=seed, options=options)
-        observations = self._get_obs()
-        self._episode_obs = [observations]
         self._timestep = 0
         self._current_state_of_charge = self._init_state_of_charge
         self._battery_capacity = self._config["battery_capacity"]
         self.__weather = self._get_weather()
         self.__sell_price = self._get_sell_price()
         self.__demand_of_electricity = self._get_demand_of_electricity()
+        observations = self._get_obs()
+        self._episode_obs = [observations]
         return observations, {}
 
     def action_masks(self) -> np.ndarray:
