@@ -17,27 +17,28 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import seaborn as sns
-from tqdm import tqdm
+from rliable import library as rly
+from rliable import metrics, plot_utils
 from sb3_contrib import MaskablePPO
+from sb3_contrib.common.maskable.evaluation import (
+    evaluate_policy as maskable_evaluate_policy,
+)
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 from sb3_contrib.common.wrappers import ActionMasker
-from sb3_contrib.common.maskable.evaluation import evaluate_policy as maskable_evaluate_policy
 from scipy import stats
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
-from rliable import metrics, plot_utils, library as rly
-
+from tqdm import tqdm
 
 from .electricity_market_env import ElectricityMarketEnv, EnvConfig
 
-
 # %% ../nbs/01_electricity_market_player.ipynb 4
-TOTAL_TIMESTEPS = 20 # 5000
-N_EPISODES = 10 # 10_000
+TOTAL_TIMESTEPS = 20  # 5000
+N_EPISODES = 10  # 10_000
 N_TRAILS = 10
 N_JOBS = 7
-seeds = [123456] #, 234567] #, 345678, 456789, 567890]
+seeds = [123456]  # , 234567] #, 345678, 456789, 567890]
 number_of_frames = 5
 frame_size = TOTAL_TIMESTEPS // number_of_frames
 frames = np.array(list(range(frame_size, TOTAL_TIMESTEPS + 1, frame_size)), dtype=int)
@@ -56,21 +57,22 @@ class Agent(ABC):
 
     @classmethod
     def collect_episodes_rewards(
-            cls,
-            model: BaseAlgorithm | None,
-            env: ElectricityMarketEnv | DummyVecEnv,
-            n_episodes: int = N_EPISODES,
-            deterministic: bool = True,
-            render: bool = False,
-            seed: int | None = None
+        cls,
+        model: BaseAlgorithm | None,
+        env: ElectricityMarketEnv | DummyVecEnv,
+        n_episodes: int = N_EPISODES,
+        deterministic: bool = True,
+        render: bool = False,
+        seed: int | None = None,
     ) -> list[float]:
         raise NotImplementedError
 
     @classmethod
     def evaluate_policy(
-            cls, hyperparameters: dict | None = None,
-            n_episodes: int = N_EPISODES,
-            render: bool = False
+        cls,
+        hyperparameters: dict | None = None,
+        n_episodes: int = N_EPISODES,
+        render: bool = False,
     ) -> np.array:
         raise NotImplementedError
 
@@ -78,19 +80,17 @@ class Agent(ABC):
     def optimize_agent(cls, trial, n_episodes: int = N_EPISODES):
         raise NotImplementedError
 
-
-
 # %% ../nbs/01_electricity_market_player.ipynb 6
 class MaskableRandomAgent(Agent):
     @classmethod
     def collect_episodes_rewards(
-            cls,
-            model: BaseAlgorithm,  # Unused for a random agent
-            env: ElectricityMarketEnv,
-            n_episodes: int = N_EPISODES,
-            deterministic: bool = True,
-            render: bool = False,
-            seed: int | None = None
+        cls,
+        model: BaseAlgorithm,  # Unused for a random agent
+        env: ElectricityMarketEnv,
+        n_episodes: int = N_EPISODES,
+        deterministic: bool = True,
+        render: bool = False,
+        seed: int | None = None,
     ) -> list[float]:
         episode_rewards = []
 
@@ -115,28 +115,37 @@ class MaskableRandomAgent(Agent):
 
     @classmethod
     def evaluate_policy(
-            cls,
-            hyperparameters: dict | None = None,
-            n_episodes: int = N_EPISODES,
-            render: bool = False
+        cls,
+        hyperparameters: dict | None = None,
+        n_episodes: int = N_EPISODES,
+        render: bool = False,
     ) -> np.array:
         global seeds, frames, env_config
 
         all_rewards = []
 
         for seed in tqdm(seeds, desc="seeds"):
-            env = ActionMasker(ElectricityMarketEnv(env_config, render_mode="human"), cls.mask_fn)
+            env = ActionMasker(
+                ElectricityMarketEnv(env_config, render_mode="human"), cls.mask_fn
+            )
 
             seed_rewards = []
 
             for _ in tqdm(frames, desc="frames"):
-                rewards = cls.collect_episodes_rewards(None, env, n_episodes, deterministic=True, render=render, seed=seed)
+                rewards = cls.collect_episodes_rewards(
+                    None, env, n_episodes, deterministic=True, render=render, seed=seed
+                )
                 seed_rewards.append(rewards)
             seed_rewards = np.array(seed_rewards)
             all_rewards.append(seed_rewards)
 
-        all_rewards = np.array(all_rewards)  # Shape: (num_seeds, num_checkpoints, num_episodes)
-        print("\nCollected Rewards (shape: seeds x checkpoints x episodes):\n", all_rewards)
+        all_rewards = np.array(
+            all_rewards
+        )  # Shape: (num_seeds, num_checkpoints, num_episodes)
+        print(
+            "\nCollected Rewards (shape: seeds x checkpoints x episodes):\n",
+            all_rewards,
+        )
 
         return all_rewards
 
@@ -144,32 +153,36 @@ class MaskableRandomAgent(Agent):
     def optimize_agent(cls, trial, n_episodes: int = N_EPISODES):
         raise NotImplementedError
 
-
 # %% ../nbs/01_electricity_market_player.ipynb 7
 class MaskablePPOAgent(Agent):
     @classmethod
     def collect_episodes_rewards(
-            cls,
-            model: MaskablePPO,
-            env: DummyVecEnv,
-            n_episodes: int = N_EPISODES,
-            deterministic: bool = True,
-            render: bool = False,
-            seed: int | None = None
+        cls,
+        model: MaskablePPO,
+        env: DummyVecEnv,
+        n_episodes: int = N_EPISODES,
+        deterministic: bool = True,
+        render: bool = False,
+        seed: int | None = None,
     ) -> list[float]:
         env.seed(seed=seed)
         episode_rewards, _ = maskable_evaluate_policy(
-            model, env, deterministic=deterministic, use_masking=True,
-            return_episode_rewards=True, n_eval_episodes=n_episodes, render=render
+            model,
+            env,
+            deterministic=deterministic,
+            use_masking=True,
+            return_episode_rewards=True,
+            n_eval_episodes=n_episodes,
+            render=render,
         )
         return episode_rewards
 
     @classmethod
     def evaluate_policy(
-            cls,
-            hyperparameters: dict | None = None,
-            n_episodes: int = N_EPISODES,
-            render: bool = False
+        cls,
+        hyperparameters: dict | None = None,
+        n_episodes: int = N_EPISODES,
+        render: bool = False,
     ) -> np.array:
         global seeds, frames, env_config
 
@@ -178,16 +191,19 @@ class MaskablePPOAgent(Agent):
         all_rewards = []
 
         for seed in tqdm(seeds, desc="seeds"):
-            env = DummyVecEnv([
-                lambda: Monitor(ActionMasker(ElectricityMarketEnv(env_config, render_mode="human"), cls.mask_fn))
-            ])
+            env = DummyVecEnv(
+                [
+                    lambda: Monitor(
+                        ActionMasker(
+                            ElectricityMarketEnv(env_config, render_mode="human"),
+                            cls.mask_fn,
+                        )
+                    )
+                ]
+            )
 
             model = MaskablePPO(
-                MaskableActorCriticPolicy,
-                env,
-                verbose=0,
-                seed=seed,
-                **hyperparameters
+                MaskableActorCriticPolicy, env, verbose=0, seed=seed, **hyperparameters
             )
             seed_rewards = []
 
@@ -196,37 +212,55 @@ class MaskablePPOAgent(Agent):
                     total_timesteps=frame, use_masking=True, reset_num_timesteps=False
                 )
                 rewards = cls.collect_episodes_rewards(
-                    model, env,
-                    n_episodes=n_episodes, deterministic=True, render=render, seed=seed
+                    model,
+                    env,
+                    n_episodes=n_episodes,
+                    deterministic=True,
+                    render=render,
+                    seed=seed,
                 )
                 seed_rewards.append(rewards)
 
-            seed_rewards = np.array(seed_rewards)  # Shape: (num_checkpoints, num_episodes)
+            seed_rewards = np.array(
+                seed_rewards
+            )  # Shape: (num_checkpoints, num_episodes)
             all_rewards.append(seed_rewards)
 
-        all_rewards = np.array(all_rewards)  # Shape: (num_seeds, num_checkpoints, num_episodes)
-        print("\nCollected Rewards (shape: seeds x checkpoints x episodes):\n", all_rewards)
+        all_rewards = np.array(
+            all_rewards
+        )  # Shape: (num_seeds, num_checkpoints, num_episodes)
+        print(
+            "\nCollected Rewards (shape: seeds x checkpoints x episodes):\n",
+            all_rewards,
+        )
         return all_rewards
 
     @classmethod
     def optimize_agent(cls, trial, n_episodes: int = N_EPISODES):
         global seeds
-        learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
-        n_steps = trial.suggest_int('n_steps', 32, 1024, log=True)
-        batch_size = trial.suggest_int('batch_size', 16, 256, log=True)
-        gamma = trial.suggest_float('gamma', 0.9, 0.9999)
-        gae_lambda = trial.suggest_float('gae_lambda', 0.8, 1.0)
-        ent_coef = trial.suggest_float('ent_coef', 0.0, 0.02)
-        vf_coef = trial.suggest_float('vf_coef', 0.1, 1.0)
-        clip_range = trial.suggest_float('clip_range', 0.1, 0.3)
-        max_grad_norm = trial.suggest_float('max_grad_norm', 0.1, 1.0)
+        learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
+        n_steps = trial.suggest_int("n_steps", 32, 1024, log=True)
+        batch_size = trial.suggest_int("batch_size", 16, 256, log=True)
+        gamma = trial.suggest_float("gamma", 0.9, 0.9999)
+        gae_lambda = trial.suggest_float("gae_lambda", 0.8, 1.0)
+        ent_coef = trial.suggest_float("ent_coef", 0.0, 0.02)
+        vf_coef = trial.suggest_float("vf_coef", 0.1, 1.0)
+        clip_range = trial.suggest_float("clip_range", 0.1, 0.3)
+        max_grad_norm = trial.suggest_float("max_grad_norm", 0.1, 1.0)
 
         trial_seed_rewards = []
 
         for seed in tqdm(seeds, desc="seeds"):
-            env = DummyVecEnv([
-                lambda: Monitor(ActionMasker(ElectricityMarketEnv(env_config, render_mode="human"), maskable_ppo_agent.mask_fn))
-            ])
+            env = DummyVecEnv(
+                [
+                    lambda: Monitor(
+                        ActionMasker(
+                            ElectricityMarketEnv(env_config, render_mode="human"),
+                            maskable_ppo_agent.mask_fn,
+                        )
+                    )
+                ]
+            )
 
             model = MaskablePPO(
                 MaskableActorCriticPolicy,
@@ -241,95 +275,137 @@ class MaskablePPOAgent(Agent):
                 clip_range=clip_range,
                 max_grad_norm=max_grad_norm,
                 verbose=0,
-                seed=seed
+                seed=seed,
             )
 
             model.learn(total_timesteps=TOTAL_TIMESTEPS, use_masking=True)
             episode_rewards = cls.collect_episodes_rewards(
-                model, env, n_episodes=n_episodes, deterministic=True, render=False, seed=seed
+                model,
+                env,
+                n_episodes=n_episodes,
+                deterministic=True,
+                render=False,
+                seed=seed,
             )
 
             seed_avg_reward = np.mean(episode_rewards)
             trial_seed_rewards.append(seed_avg_reward)
-        aggregated_performance = stats.trim_mean(trial_seed_rewards, proportiontocut=0.25)
+        aggregated_performance = stats.trim_mean(
+            trial_seed_rewards, proportiontocut=0.25
+        )
 
         return aggregated_performance
 
-
 # %% ../nbs/01_electricity_market_player.ipynb 8
 # Function to compute aggregated metrics for each algorithm
+
+
 def aggregate_func(x):
-    return np.array([
-        metrics.aggregate_median(x),
-        metrics.aggregate_iqm(x),
-        metrics.aggregate_mean(x)
-    ], dtype=np.float64)
+    return np.array(
+        [
+            metrics.aggregate_median(x),
+            metrics.aggregate_iqm(x),
+            metrics.aggregate_mean(x),
+        ],
+        dtype=np.float64,
+    )
+
 
 # Aggregate results across seeds and episodes for each algorithm
+
+
 def aggregate_over_checkpoints(evaluation_results):
     aggregated_results = {}
     for algorithm, results in evaluation_results.items():
         # results.shape is (num_seeds, num_checkpoints, num_episodes)
         # We aggregate across seeds and episodes for each checkpoint
-        agg_results = np.array([aggregate_func(results[:, i, :]) for i in range(results.shape[1])])
+        agg_results = np.array(
+            [aggregate_func(results[:, i, :]) for i in range(results.shape[1])]
+        )
         aggregated_results[algorithm] = agg_results
     return aggregated_results
 
+
 # Function to plot aggregate metrics (Median, IQM, Mean)
+
+
 def plot_aggregate_metrics(aggregated_results, algorithms):
     aggregate_scores, aggregate_score_cis = rly.get_interval_estimates(
         aggregated_results, aggregate_func, reps=50000
     )
 
-    metric_names = ['Median', 'IQM', 'Mean']
+    metric_names = ["Median", "IQM", "Mean"]
     fig, axes = plot_utils.plot_interval_estimates(
         aggregate_scores,
         aggregate_score_cis,
         metric_names=metric_names,
         algorithms=algorithms,
-        xlabel='Reward'
+        xlabel="Reward",
     )
     fig.set_size_inches(10, 5)
-    plt.suptitle("Aggregate Metrics with 95% Stratified Bootstrap CIs", y=1.05, fontsize=16)
+    plt.suptitle(
+        "Aggregate Metrics with 95% Stratified Bootstrap CIs", y=1.05, fontsize=16
+    )
     plt.xticks(rotation=45, fontsize=12)
     plt.show()
 
+
 # Function to plot the probability of improvement between two algorithms
+
+
 def plot_probability_of_improvement(evaluation_results, algorithms):
     for alg1, alg2 in combinations(algorithms, 2):
-        algorithm_pairs = {f"{alg1},{alg2}": (evaluation_results[alg1], evaluation_results[alg2])}
+        algorithm_pairs = {
+            f"{alg1},{alg2}": (evaluation_results[alg1], evaluation_results[alg2])
+        }
 
         average_probabilities, average_prob_cis = rly.get_interval_estimates(
             algorithm_pairs, metrics.probability_of_improvement, reps=2000
         )
 
-        plot_utils.plot_probability_of_improvement(average_probabilities, average_prob_cis)
+        plot_utils.plot_probability_of_improvement(
+            average_probabilities, average_prob_cis
+        )
         plt.title(f"Probability of Improvement: {alg1} vs {alg2}", pad=20)
         plt.show()
 
+
 # Function to plot the sample efficiency curve
+
+
 def plot_sample_efficiency_curve(evaluation_results, frames):
     global number_of_frames
     sample_efficiency_dict = {
         alg: results[:, :, :]
-        for alg, results in evaluation_results.items() if len(results.shape) == 3
+        for alg, results in evaluation_results.items()
+        if len(results.shape) == 3
     }
 
-    iqm_func = lambda scores: np.array([metrics.aggregate_iqm(scores[:, :, frame]) for frame in range(number_of_frames)])
-    iqm_scores, iqm_cis = rly.get_interval_estimates(sample_efficiency_dict, iqm_func, reps=50000)
+    iqm_func = lambda scores: np.array(
+        [
+            metrics.aggregate_iqm(scores[:, :, frame])
+            for frame in range(number_of_frames)
+        ]
+    )
+    iqm_scores, iqm_cis = rly.get_interval_estimates(
+        sample_efficiency_dict, iqm_func, reps=50000
+    )
 
     plot_utils.plot_sample_efficiency_curve(
         frames=frames + 1,  # Adjust frames if necessary
         point_estimates=iqm_scores,
         interval_estimates=iqm_cis,
         algorithms=sample_efficiency_dict.keys(),
-        xlabel='Number of Frames',
-        ylabel='IQM Reward'
+        xlabel="Number of Frames",
+        ylabel="IQM Reward",
     )
     plt.title("Sample Efficiency Curve")
     plt.show()
 
+
 # Function to plot performance profiles (linear and non-linear scaling)
+
+
 def plot_performance_profiles(evaluation_results, algorithms):
     thresholds = np.linspace(0.0, 8.0, 81)
     score_distributions, score_distributions_cis = rly.create_performance_profile(
@@ -342,9 +418,9 @@ def plot_performance_profiles(evaluation_results, algorithms):
         score_distributions,
         thresholds,
         performance_profile_cis=score_distributions_cis,
-        colors=dict(zip(algorithms, sns.color_palette('colorblind'))),
-        xlabel=r'Normalized Score $(\tau)$',
-        ax=ax
+        colors=dict(zip(algorithms, sns.color_palette("colorblind"))),
+        xlabel=r"Normalized Score $(\tau)$",
+        ax=ax,
     )
     plt.title("Performance Profiles (Linear Scale)")
     plt.show()
@@ -357,9 +433,9 @@ def plot_performance_profiles(evaluation_results, algorithms):
         thresholds,
         performance_profile_cis=score_distributions_cis,
         use_non_linear_scaling=True,
-        colors=dict(zip(algorithms, sns.color_palette('colorblind'))),
-        xlabel=r'Normalized Score $(\tau)$',
-        ax=ax
+        colors=dict(zip(algorithms, sns.color_palette("colorblind"))),
+        xlabel=r"Normalized Score $(\tau)$",
+        ax=ax,
     )
     plt.title("Performance Profiles (Non-Linear Scaling)")
     plt.tight_layout()
@@ -376,23 +452,36 @@ def plot_learning_curves(evaluation_results, algorithms):
     for algorithm in algorithms:
         mean_rewards_per_episode = np.mean(evaluation_results[algorithm], axis=(0, 1))
         std_rewards_per_episode = np.std(evaluation_results[algorithm], axis=(0, 1))
-        plt.plot(episodes, mean_rewards_per_episode, label=algorithm, marker='o', linestyle='-')
-        plt.fill_between(episodes, mean_rewards_per_episode - std_rewards_per_episode,
-                         mean_rewards_per_episode + std_rewards_per_episode, alpha=0.2)
+        plt.plot(
+            episodes,
+            mean_rewards_per_episode,
+            label=algorithm,
+            marker="o",
+            linestyle="-",
+        )
+        plt.fill_between(
+            episodes,
+            mean_rewards_per_episode - std_rewards_per_episode,
+            mean_rewards_per_episode + std_rewards_per_episode,
+            alpha=0.2,
+        )
 
-    plt.xlabel('Episodes', fontsize=14)
-    plt.ylabel('Mean Episode Reward', fontsize=14)
-    plt.title('Learning Curves of Multiple Algorithms', fontsize=16, fontweight='bold')
+    plt.xlabel("Episodes", fontsize=14)
+    plt.ylabel("Mean Episode Reward", fontsize=14)
+    plt.title("Learning Curves of Multiple Algorithms", fontsize=16, fontweight="bold")
 
-    plt.legend(loc='best', fontsize=12, title="Algorithms")
-    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(loc="best", fontsize=12, title="Algorithms")
+    plt.grid(True, linestyle="--", alpha=0.6)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
 
     plt.tight_layout(pad=2.0)
     plt.show()
 
+
 # Main function to call all the individual plot functions
+
+
 def plot_evaluation_results(evaluation_results: dict) -> None:
     global frames
     algorithms = list(evaluation_results.keys())
@@ -415,19 +504,22 @@ def plot_evaluation_results(evaluation_results: dict) -> None:
     # Plot Learning Curves
     plot_learning_curves(evaluation_results, algorithms)
 
-
 # %% ../nbs/01_electricity_market_player.ipynb 9
 maskable_random_agent = MaskableRandomAgent()
 maskable_ppo_agent = MaskablePPOAgent()
 
 # %% ../nbs/01_electricity_market_player.ipynb 11
-results["MaskableRandomAgent"] = maskable_random_agent.evaluate_policy(hyperparameters=None, n_episodes=N_EPISODES, render=False)
+results["MaskableRandomAgent"] = maskable_random_agent.evaluate_policy(
+    hyperparameters=None, n_episodes=N_EPISODES, render=False
+)
 
 # %% ../nbs/01_electricity_market_player.ipynb 12
 plot_evaluation_results(results)
 
 # %% ../nbs/01_electricity_market_player.ipynb 14
-results["MaskablePPOAgent_Baseline"] = maskable_ppo_agent.evaluate_policy(hyperparameters=None, n_episodes=N_EPISODES, render=False)
+results["MaskablePPOAgent_Baseline"] = maskable_ppo_agent.evaluate_policy(
+    hyperparameters=None, n_episodes=N_EPISODES, render=False
+)
 
 # %% ../nbs/01_electricity_market_player.ipynb 15
 plot_evaluation_results(results)
@@ -439,7 +531,9 @@ study.optimize(maskable_ppo_agent.optimize_agent, n_trials=N_TRAILS, n_jobs=N_JO
 print("Best trial:", study.best_trial)
 
 # %% ../nbs/01_electricity_market_player.ipynb 19
-results["MaskablePPOAgent_Optimized"] = maskable_ppo_agent.evaluate_policy(hyperparameters=study.best_trial.params, n_episodes=N_EPISODES, render=False)
+results["MaskablePPOAgent_Optimized"] = maskable_ppo_agent.evaluate_policy(
+    hyperparameters=study.best_trial.params, n_episodes=N_EPISODES, render=False
+)
 
 # %% ../nbs/01_electricity_market_player.ipynb 20
 plot_evaluation_results(results)

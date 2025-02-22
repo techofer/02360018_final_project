@@ -10,13 +10,13 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 from io import BytesIO
-from PIL import Image
 
 import gymnasium as gym
 import numpy as np
 from gymnasium.core import RenderFrame
 from gymnasium.envs.registration import register
 from matplotlib import pyplot as plt
+from PIL import Image
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.monitor import Monitor
@@ -28,45 +28,45 @@ class Season(Enum):
     SPRING = 3
     SUMMER = 4
 
+
 class Weather(Enum):
     SUNNY = 1
     CLOUDY = 2
     PARTIAL_CLOUDY = 3
 
+
 WEATHER_PROBABILITIES_MAP_PER_SEASON = {
-    Season.FALL: {
-        Weather.SUNNY: 0.5,
-        Weather.CLOUDY: 0.3,
-        Weather.PARTIAL_CLOUDY: 0.2
-    },
+    Season.FALL: {Weather.SUNNY: 0.5, Weather.CLOUDY: 0.3, Weather.PARTIAL_CLOUDY: 0.2},
     Season.WINTER: {
         Weather.SUNNY: 0.2,
         Weather.CLOUDY: 0.5,
-        Weather.PARTIAL_CLOUDY: 0.3
+        Weather.PARTIAL_CLOUDY: 0.3,
     },
     Season.SPRING: {
         Weather.SUNNY: 0.5,
         Weather.CLOUDY: 0.3,
-        Weather.PARTIAL_CLOUDY: 0.2
+        Weather.PARTIAL_CLOUDY: 0.2,
     },
     Season.SUMMER: {
         Weather.SUNNY: 0.7,
         Weather.CLOUDY: 0.1,
-        Weather.PARTIAL_CLOUDY: 0.2
-    }
+        Weather.PARTIAL_CLOUDY: 0.2,
+    },
 }
 
 # %% ../nbs/00_electricity_market_env.ipynb 5
 @dataclass
 class EnvConfig:
-    max_timestep: int = 365 * (24 / 4) # default: a full year
+    max_timestep: int = 365 * (24 / 4)  # default: a full year
     init_battery_capacity: int = 250  # default: 25 kWh
     init_state_of_charge: int = 200  # default: 20 kWh
     production_capacity: int = 720 / 6  # default: 72 kWh/day
 
 # %% ../nbs/00_electricity_market_env.ipynb 6
 class ElectricityMarketEnv(gym.Env):
-    def __init__(self, env_config: EnvConfig | None = None, render_mode: str | None = None):
+    def __init__(
+        self, env_config: EnvConfig | None = None, render_mode: str | None = None
+    ):
         if env_config is None:
             env_config = EnvConfig()
         self._config = env_config
@@ -101,26 +101,28 @@ class ElectricityMarketEnv(gym.Env):
         self.actions = list(range(-self._battery_capacity, self._battery_capacity + 1))
         self.observation_space = gym.spaces.Box(
             low=np.array([0, 0, 0, 0, 0, 0, 0, 0]),
-            high=np.array([
-                # Battery SoC
-                self._current_state_of_charge / self._battery_capacity,
-                # current battery capacity
-                self._battery_capacity / self._battery_capacity,
-                # battery safe range low boundary
-                self._battery_safe_range[0] / self._battery_capacity,
-                # battery safe range high boundary
-                self._battery_safe_range[1] / self._battery_capacity,
-                # Current electricity demand,
-                self._max_demand_of_electricity / self._max_demand_of_electricity,
-                # Current market price
-                self._max_price / self._max_price,
-                # Safe range indicator: 1 if safe, 0 if violated
-                1,
-                # production
-                self._production_capacity / self._production_capacity,
-
-            ]),
-            shape=(8,), dtype=np.float64
+            high=np.array(
+                [
+                    # Battery SoC
+                    self._current_state_of_charge / self._battery_capacity,
+                    # current battery capacity
+                    self._battery_capacity / self._battery_capacity,
+                    # battery safe range low boundary
+                    self._battery_safe_range[0] / self._battery_capacity,
+                    # battery safe range high boundary
+                    self._battery_safe_range[1] / self._battery_capacity,
+                    # Current electricity demand,
+                    self._max_demand_of_electricity / self._max_demand_of_electricity,
+                    # Current market price
+                    self._max_price / self._max_price,
+                    # Safe range indicator: 1 if safe, 0 if violated
+                    1,
+                    # production
+                    self._production_capacity / self._production_capacity,
+                ]
+            ),
+            shape=(8,),
+            dtype=np.float64,
         )
 
     def _charge_amount(self, action: int) -> int:
@@ -151,7 +153,7 @@ class ElectricityMarketEnv(gym.Env):
         self._battery_capacity *= self._battery_degradation
         # if violated the safe range, extra degradation
         if self._is_safe_range_violation:
-            self._battery_capacity *= (self._battery_degradation ** 5)
+            self._battery_capacity *= self._battery_degradation**5
         reward = self._reward(charge_amount)
         self._timestep += 1
         self.__weather = self._get_weather()
@@ -162,7 +164,9 @@ class ElectricityMarketEnv(gym.Env):
         return observations, reward, done, truncated, {}
 
     def _get_weather(self) -> Weather:
-        options, probs = zip(*WEATHER_PROBABILITIES_MAP_PER_SEASON[self._season].items())
+        options, probs = zip(
+            *WEATHER_PROBABILITIES_MAP_PER_SEASON[self._season].items()
+        )
         return np.random.choice(options, p=probs)
 
     @property
@@ -228,7 +232,12 @@ class ElectricityMarketEnv(gym.Env):
 
     @property
     def _max_demand_of_electricity(self) -> float:
-        return self._base_demand_of_electricity * self._high_demand_seasons_demand_factor * self._night_demand_factor * 1.2
+        return (
+            self._base_demand_of_electricity
+            * self._high_demand_seasons_demand_factor
+            * self._night_demand_factor
+            * 1.2
+        )
 
     def _get_demand_of_electricity(self) -> float:
         demand = self._base_demand_of_electricity
@@ -242,7 +251,9 @@ class ElectricityMarketEnv(gym.Env):
     @property
     def _is_safe_range_violation(self) -> bool:
         low, high = self._battery_safe_range
-        return self._current_state_of_charge < low or self._current_state_of_charge > high
+        return (
+            self._current_state_of_charge < low or self._current_state_of_charge > high
+        )
 
     @property
     def _battery_safe_range(self) -> tuple[float, float]:
@@ -252,7 +263,12 @@ class ElectricityMarketEnv(gym.Env):
     @property
     def _max_price(self) -> float:
         # base price in dark hours in winter/summer with max noise
-        return self._base_price * self._night_price_factor * self._high_demand_seasons_price_factor * 1.2
+        return (
+            self._base_price
+            * self._night_price_factor
+            * self._high_demand_seasons_price_factor
+            * 1.2
+        )
 
     def _get_sell_price(self) -> float:
         price = self._base_price
@@ -268,7 +284,7 @@ class ElectricityMarketEnv(gym.Env):
         return self.__sell_price
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
-        """ Resets the environment to the initial state. """
+        """Resets the environment to the initial state."""
         super().reset(seed=seed, options=options)
         self._timestep = 0
         self._current_state_of_charge = self._init_state_of_charge
@@ -284,33 +300,37 @@ class ElectricityMarketEnv(gym.Env):
     def action_masks(self) -> np.ndarray:
         """Generate a boolean mask of valid actions for `MaskablePPO`."""
         mask = np.array(
-            [self._is_action_valid(action) for action in range(self.action_space.n)], dtype=bool
+            [self._is_action_valid(action) for action in range(self.action_space.n)],
+            dtype=bool,
         )
         if not np.any(mask):  # If all actions are invalid, force one to be valid
             mask[len(mask) // 2] = True
         return mask
 
     def _get_obs(self) -> np.ndarray:
-        """ Returns the current observation (state). """
+        """Returns the current observation (state)."""
         safe_range_indicator = 1 if not self._is_safe_range_violation else 0
-        return np.array([
-            # Battery SoC
-            self._current_state_of_charge / self._config.init_battery_capacity,
-            # current battery capacity
-            self._battery_capacity / self._config.init_battery_capacity,
-            # battery safe range low boundary
-            self._battery_safe_range[0] / self._config.init_battery_capacity,
-            # battery safe range high boundary
-            self._battery_safe_range[1] / self._config.init_battery_capacity,
-            # Current electricity demand
-            self._demand_of_electricity / self._max_demand_of_electricity,
-            # Current market price
-            self._sell_price / self._max_price,
-            # Safe range indicator: 1 if safe, 0 if violated
-            safe_range_indicator,
-            # production
-            self._production / self._production_capacity,
-        ], dtype=np.float64)
+        return np.array(
+            [
+                # Battery SoC
+                self._current_state_of_charge / self._config.init_battery_capacity,
+                # current battery capacity
+                self._battery_capacity / self._config.init_battery_capacity,
+                # battery safe range low boundary
+                self._battery_safe_range[0] / self._config.init_battery_capacity,
+                # battery safe range high boundary
+                self._battery_safe_range[1] / self._config.init_battery_capacity,
+                # Current electricity demand
+                self._demand_of_electricity / self._max_demand_of_electricity,
+                # Current market price
+                self._sell_price / self._max_price,
+                # Safe range indicator: 1 if safe, 0 if violated
+                safe_range_indicator,
+                # production
+                self._production / self._production_capacity,
+            ],
+            dtype=np.float64,
+        )
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:
         if not self._episode_obs or self._timestep < self._config.max_timestep:
@@ -324,16 +344,28 @@ class ElectricityMarketEnv(gym.Env):
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 6))
 
         # Plot Battery Level, Battery Capacity, and Electricity Demand in the first subplot (ax1)
-        ax1.plot(timesteps, observations[:, 0], label=feature_labels[0])  # Battery Level (SoC)
-        ax1.plot(timesteps, observations[:, 1], label=feature_labels[1])  # Battery Capacity
+        ax1.plot(
+            timesteps, observations[:, 0], label=feature_labels[0]
+        )  # Battery Level (SoC)
+        ax1.plot(
+            timesteps, observations[:, 1], label=feature_labels[1]
+        )  # Battery Capacity
 
         # Use the safe range boundaries from observations (indices 2 and 3)
         low = observations[:, 2]  # Safe range low (from observation)
         high = observations[:, 3]  # Safe range high (from observation)
 
         # Plot the safe range boundaries (red lines)
-        ax1.plot(timesteps, low, color='red', linestyle='--', label="Battery Safe Range Low")
-        ax1.plot(timesteps, high, color='red', linestyle='--', label="Battery Safe Range High")
+        ax1.plot(
+            timesteps, low, color="red", linestyle="--", label="Battery Safe Range Low"
+        )
+        ax1.plot(
+            timesteps,
+            high,
+            color="red",
+            linestyle="--",
+            label="Battery Safe Range High",
+        )
 
         # Add labels, title, and legend for the first plot
         ax1.set_xlabel("Timestep")
@@ -342,7 +374,9 @@ class ElectricityMarketEnv(gym.Env):
         ax1.legend()
 
         # Plot the Price in the second subplot (ax2)
-        ax2.plot(timesteps, observations[:, 5], label="Price", color="orange")  # Price from observation
+        ax2.plot(
+            timesteps, observations[:, 5], label="Price", color="orange"
+        )  # Price from observation
 
         # Optionally, customize the second plot scale (e.g., different y-limits)
         ax2.set_ylim(bottom=0)  # Adjust this as needed for your price range
@@ -353,7 +387,9 @@ class ElectricityMarketEnv(gym.Env):
         ax2.set_title("Electricity Price Over Time")
         ax2.legend()
 
-        ax3.plot(timesteps, observations[:, 4], label="Electricity Demand", color="orange")  # Price
+        ax3.plot(
+            timesteps, observations[:, 4], label="Electricity Demand", color="orange"
+        )  # Price
         ax3.set_ylim(bottom=0)  # Adjust this as needed for your price range
 
         # Add labels, title, and legend for the second plot
@@ -372,4 +408,3 @@ class ElectricityMarketEnv(gym.Env):
 
         img = Image.open(buf)
         return [img]
-
