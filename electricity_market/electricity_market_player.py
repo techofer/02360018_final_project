@@ -4,10 +4,11 @@
 
 # %% auto 0
 __all__ = ['TOTAL_TIMESTEPS', 'N_EPISODES', 'N_TRAILS', 'N_JOBS', 'seeds', 'number_of_frames', 'frame_size', 'frames',
-           'env_config', 'results', 'a2c_agent', 'maskable_random_agent', 'maskable_ppo_agent', 'study', 'Agent',
-           'MaskableRandomAgent', 'A2CAgent', 'MaskablePPOAgent', 'aggregate_func', 'aggregate_over_checkpoints',
-           'plot_aggregate_metrics', 'plot_probability_of_improvement', 'plot_sample_efficiency_curve',
-           'plot_performance_profiles', 'plot_learning_curves', 'plot_evaluation_results']
+           'env_config', 'results', 'a2c_agent', 'maskable_random_agent', 'maskable_ppo_agent', 'study', 'results2',
+           'expert_maskable_random_agent', 'expert_maskable_ppo_agent', 'Agent', 'MaskableRandomAgent', 'A2CAgent',
+           'MaskablePPOAgent', 'aggregate_func', 'aggregate_over_checkpoints', 'plot_aggregate_metrics',
+           'plot_probability_of_improvement', 'plot_sample_efficiency_curve', 'plot_performance_profiles',
+           'plot_learning_curves', 'plot_evaluation_results', 'is_action_safe', 'expert_knowledge_action_masks']
 
 # %% ../nbs/01_electricity_market_player.ipynb 3
 from abc import ABC
@@ -34,17 +35,17 @@ from stable_baselines3.common.evaluation import (
     evaluate_policy as non_maskable_evaluate_policy,
 )
 from stable_baselines3.common.monitor import Monitor
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from .electricity_market_env import ElectricityMarketEnv, EnvConfig
 
 # %% ../nbs/01_electricity_market_player.ipynb 4
-TOTAL_TIMESTEPS = 10_000
+TOTAL_TIMESTEPS = 365 * 6 * 3
 N_EPISODES = 10
 N_TRAILS = 10
-N_JOBS = 7
-seeds = [123456]  # , 234567] #, 345678, 456789, 567890]
-number_of_frames = 5
+N_JOBS = -1
+seeds = [123456, 234567, 345678]
+number_of_frames = 10
 frame_size = TOTAL_TIMESTEPS // number_of_frames
 frames = np.array(list(range(frame_size, TOTAL_TIMESTEPS + 1, frame_size)), dtype=int)
 
@@ -128,15 +129,14 @@ class MaskableRandomAgent(Agent):
         global seeds, frames, env_config
 
         all_rewards = []
-
+        env = ActionMasker(
+            ElectricityMarketEnv(env_config, render_mode="human"), cls.mask_fn
+        )
         for seed in tqdm(seeds, desc="seeds"):
-            env = ActionMasker(
-                ElectricityMarketEnv(env_config, render_mode="human"), cls.mask_fn
-            )
-
+            env.reset(seed=seed)
             seed_rewards = []
 
-            for _ in tqdm(frames, desc="frames"):
+            for _ in tqdm(frames, desc="frames", leave=False):
                 rewards = cls.collect_episodes_rewards(
                     None, env, n_episodes, deterministic=True, render=render, seed=seed
                 )
@@ -193,24 +193,22 @@ class A2CAgent(Agent):
         if hyperparameters is None:
             hyperparameters = {}
         all_rewards = []
+        env = Monitor(
+            ElectricityMarketEnv(env_config, render_mode="human"),
+        )
 
+        model = A2C(
+            "MlpPolicy",
+            env,
+            verbose=0,
+            **hyperparameters,
+            tensorboard_log="./a2c_tensorboard/",
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        checkpoint_callback = CheckpointCallback(save_freq=10000, save_path="./logs/")
         for seed in tqdm(seeds, desc="seeds"):
-            env = Monitor(
-                ElectricityMarketEnv(env_config, render_mode="human"),
-            )
-
-            model = A2C(
-                "MlpPolicy",
-                env,
-                verbose=0,
-                seed=seed,
-                **hyperparameters,
-                tensorboard_log="./a2c_tensorboard/",
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-            checkpoint_callback = CheckpointCallback(
-                save_freq=10000, save_path="./logs/"
-            )
+            model.set_random_seed(seed)
+            env.reset(seed=seed)
             seed_rewards = []
 
             for frame in tqdm(frames, desc="frames", leave=False):
@@ -284,28 +282,26 @@ class MaskablePPOAgent(Agent):
             hyperparameters = {}
         all_rewards = []
 
+        env = Monitor(
+            ActionMasker(
+                ElectricityMarketEnv(env_config, render_mode="human"),
+                cls.mask_fn,
+            )
+        )
+
+        model = MaskablePPO(
+            MaskableActorCriticPolicy,
+            env,
+            verbose=0,
+            **hyperparameters,
+            tensorboard_log="./maskable_ppo_tensorboard/",
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        checkpoint_callback = CheckpointCallback(save_freq=10000, save_path="./logs/")
         for seed in tqdm(seeds, desc="seeds"):
-            env = Monitor(
-                ActionMasker(
-                    ElectricityMarketEnv(env_config, render_mode="human"),
-                    cls.mask_fn,
-                )
-            )
-
-            model = MaskablePPO(
-                MaskableActorCriticPolicy,
-                env,
-                verbose=0,
-                seed=seed,
-                **hyperparameters,
-                tensorboard_log="./maskable_ppo_tensorboard/",
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-            checkpoint_callback = CheckpointCallback(
-                save_freq=10000, save_path="./logs/"
-            )
+            model.set_random_seed(seed)
+            env.reset(seed=seed)
             seed_rewards = []
-
             for frame in tqdm(frames, desc="frames", leave=False):
                 model.learn(
                     total_timesteps=frame,
@@ -351,32 +347,38 @@ class MaskablePPOAgent(Agent):
         max_grad_norm = trial.suggest_float("max_grad_norm", 0.1, 1.0)
 
         trial_seed_rewards = []
+        env = Monitor(
+            ActionMasker(
+                ElectricityMarketEnv(env_config, render_mode="human"),
+                maskable_ppo_agent.mask_fn,
+            )
+        )
+        model = MaskablePPO(
+            MaskableActorCriticPolicy,
+            env,
+            learning_rate=learning_rate,
+            n_steps=n_steps,
+            batch_size=batch_size,
+            gamma=gamma,
+            gae_lambda=gae_lambda,
+            ent_coef=ent_coef,
+            vf_coef=vf_coef,
+            clip_range=clip_range,
+            max_grad_norm=max_grad_norm,
+            verbose=0,
+            tensorboard_log="./maskable_ppo_tensorboard/",
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        checkpoint_callback = CheckpointCallback(save_freq=10000, save_path="./logs/")
 
         for seed in tqdm(seeds, desc="seeds"):
-            env = Monitor(
-                ActionMasker(
-                    ElectricityMarketEnv(env_config, render_mode="human"),
-                    maskable_ppo_agent.mask_fn,
-                )
+            model.set_random_seed(seed)
+            env.reset(seed=seed)
+            model.learn(
+                total_timesteps=TOTAL_TIMESTEPS,
+                use_masking=True,
+                callback=checkpoint_callback,
             )
-
-            model = MaskablePPO(
-                MaskableActorCriticPolicy,
-                env,
-                learning_rate=learning_rate,
-                n_steps=n_steps,
-                batch_size=batch_size,
-                gamma=gamma,
-                gae_lambda=gae_lambda,
-                ent_coef=ent_coef,
-                vf_coef=vf_coef,
-                clip_range=clip_range,
-                max_grad_norm=max_grad_norm,
-                verbose=0,
-                seed=seed,
-            )
-
-            model.learn(total_timesteps=TOTAL_TIMESTEPS, use_masking=True)
             episode_rewards = cls.collect_episodes_rewards(
                 model,
                 env,
@@ -612,40 +614,101 @@ a2c_agent = A2CAgent()
 maskable_random_agent = MaskableRandomAgent()
 maskable_ppo_agent = MaskablePPOAgent()
 
-# %% ../nbs/01_electricity_market_player.ipynb 11
+# %% ../nbs/01_electricity_market_player.ipynb 12
 results["A2CAgent"] = a2c_agent.evaluate_policy(
     hyperparameters=None, n_episodes=N_EPISODES, render=False
 )
 
-# %% ../nbs/01_electricity_market_player.ipynb 12
+# %% ../nbs/01_electricity_market_player.ipynb 13
 plot_evaluation_results(results)
 
-# %% ../nbs/01_electricity_market_player.ipynb 14
+# %% ../nbs/01_electricity_market_player.ipynb 15
 results["MaskableRandomAgent"] = maskable_random_agent.evaluate_policy(
     hyperparameters=None, n_episodes=N_EPISODES, render=False
 )
 
-# %% ../nbs/01_electricity_market_player.ipynb 15
+# %% ../nbs/01_electricity_market_player.ipynb 16
 plot_evaluation_results(results)
 
-# %% ../nbs/01_electricity_market_player.ipynb 17
+# %% ../nbs/01_electricity_market_player.ipynb 18
 results["MaskablePPOAgent_Baseline"] = maskable_ppo_agent.evaluate_policy(
     hyperparameters=None, n_episodes=N_EPISODES, render=False
 )
 
-# %% ../nbs/01_electricity_market_player.ipynb 18
+# %% ../nbs/01_electricity_market_player.ipynb 19
 plot_evaluation_results(results)
 
-# %% ../nbs/01_electricity_market_player.ipynb 20
-study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
-study.optimize(maskable_ppo_agent.optimize_agent, n_trials=N_TRAILS, n_jobs=N_JOBS)
+# %% ../nbs/01_electricity_market_player.ipynb 21
+study = optuna.create_study(
+    study_name="maskable_ppo_hypertuning",
+    storage="sqlite:///optuna_study.db",
+    load_if_exists=True,
+    direction="maximize",
+    pruner=optuna.pruners.HyperbandPruner(),
+    sampler=optuna.samplers.TPESampler(),
+)
+study.optimize(
+    maskable_ppo_agent.optimize_agent,
+    n_trials=N_TRAILS,
+    n_jobs=N_JOBS,
+    show_progress_bar=True,
+)
 
 print("Best trial:", study.best_trial)
 
-# %% ../nbs/01_electricity_market_player.ipynb 22
+# %% ../nbs/01_electricity_market_player.ipynb 23
 results["MaskablePPOAgent_Optimized"] = maskable_ppo_agent.evaluate_policy(
     hyperparameters=study.best_trial.params, n_episodes=N_EPISODES, render=False
 )
 
-# %% ../nbs/01_electricity_market_player.ipynb 23
+# %% ../nbs/01_electricity_market_player.ipynb 24
+plot_evaluation_results(results)
+
+# %% ../nbs/01_electricity_market_player.ipynb 25
+results2 = results.copy()
+results2.pop("A2CAgent")
+plot_evaluation_results(results2)
+
+# %% ../nbs/01_electricity_market_player.ipynb 27
+def is_action_safe(self, action: int) -> bool:
+    target_state_of_charge = self._current_state_of_charge + self.actions[action]
+    low, high = self._battery_safe_range
+    return high > target_state_of_charge > low
+
+
+def expert_knowledge_action_masks(self) -> np.ndarray:
+    mask = np.array(
+        [
+            self._is_action_valid(action) and self.is_action_safe(action)
+            for action in range(self.action_space.n)
+        ],
+        dtype=bool,
+    )
+    if not np.any(mask):  # If all actions are invalid, force one to be valid
+        mask[len(mask) // 2] = True
+    return mask
+
+
+# Dynamically overriding action_masks to ElectricityMarketEnv
+setattr(ElectricityMarketEnv, "action_masks", expert_knowledge_action_masks)
+# Dynamically overriding injection is_action_safe to ElectricityMarketEnv
+setattr(ElectricityMarketEnv, "is_action_safe", is_action_safe)
+
+expert_maskable_random_agent = MaskableRandomAgent()
+expert_maskable_ppo_agent = MaskablePPOAgent()
+
+# %% ../nbs/01_electricity_market_player.ipynb 28
+results["ExpertMaskableRandomAgent"] = expert_maskable_random_agent.evaluate_policy(
+    hyperparameters=None, n_episodes=N_EPISODES, render=False
+)
+
+# %% ../nbs/01_electricity_market_player.ipynb 29
+plot_evaluation_results(results)
+
+# %% ../nbs/01_electricity_market_player.ipynb 30
+results["ExpertMaskablePPOAgent_Baseline"] = expert_maskable_ppo_agent.evaluate_policy(
+    hyperparameters=None, n_episodes=N_EPISODES, render=False
+)
+
+# %% ../nbs/01_electricity_market_player.ipynb 31
 plot_evaluation_results(results)

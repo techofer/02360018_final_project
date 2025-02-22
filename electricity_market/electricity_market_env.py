@@ -128,6 +128,9 @@ class ElectricityMarketEnv(gym.Env):
     def _charge_amount(self, action: int) -> int:
         return math.ceil(self.actions[action] - self._demand_of_electricity)
 
+    def _electricity_leftover(self, action: int) -> float:
+        return self._production - self._charge_amount(action)
+
     def _is_action_valid(self, action: int) -> bool:
         charge_amount = self._charge_amount(action)
         if charge_amount > self._production:
@@ -154,7 +157,7 @@ class ElectricityMarketEnv(gym.Env):
         # if violated the safe range, extra degradation
         if self._is_safe_range_violation:
             self._battery_capacity *= self._battery_degradation**5
-        reward = self._reward(charge_amount)
+        reward = self._reward(action)
         self._timestep += 1
         self.__weather = self._get_weather()
         self.__sell_price = self._get_sell_price()
@@ -214,14 +217,19 @@ class ElectricityMarketEnv(gym.Env):
             case _:
                 raise ValueError("Weather not supported")
 
-    def _reward(self, charge_amount) -> float:
+    def _reward(self, action) -> float:
         # penalty for violating the safe range
         if self._is_safe_range_violation:
+            return -0.8
+        sell_amount = self._electricity_leftover(action)
+        if sell_amount < 0:
             return -0.5
-        if charge_amount >= 0:
-            return 0
-        max_reward = self._max_price * self._config.init_battery_capacity
-        reward = abs(charge_amount) * self._sell_price
+        max_reward = self._max_price * (
+            self._config.init_battery_capacity
+            + self._production_capacity
+            - self._min_electricity_demand
+        )
+        reward = sell_amount * self._sell_price
         # normalize (max reward is not reachable)
         normalized_reward = reward / max_reward
         return normalized_reward
@@ -229,6 +237,10 @@ class ElectricityMarketEnv(gym.Env):
     @property
     def _demand_of_electricity(self) -> float:
         return self.__demand_of_electricity
+
+    @property
+    def _min_electricity_demand(self) -> float:
+        return self._base_demand_of_electricity * 0.8
 
     @property
     def _max_demand_of_electricity(self) -> float:
