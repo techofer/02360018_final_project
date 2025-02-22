@@ -4,8 +4,8 @@
 
 # %% auto 0
 __all__ = ['TOTAL_TIMESTEPS', 'N_EPISODES', 'N_TRAILS', 'N_JOBS', 'seeds', 'number_of_frames', 'frame_size', 'frames',
-           'env_config', 'results', 'maskable_random_agent', 'maskable_ppo_agent', 'study', 'Agent',
-           'MaskableRandomAgent', 'MaskablePPOAgent', 'aggregate_func', 'aggregate_over_checkpoints',
+           'env_config', 'results', 'a2c_agent', 'maskable_random_agent', 'maskable_ppo_agent', 'study', 'Agent',
+           'MaskableRandomAgent', 'A2CAgent', 'MaskablePPOAgent', 'aggregate_func', 'aggregate_over_checkpoints',
            'plot_aggregate_metrics', 'plot_probability_of_improvement', 'plot_sample_efficiency_curve',
            'plot_performance_profiles', 'plot_learning_curves', 'plot_evaluation_results']
 
@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import seaborn as sns
+import torch
 from rliable import library as rly
 from rliable import metrics, plot_utils
 from sb3_contrib import MaskablePPO
@@ -26,15 +27,20 @@ from sb3_contrib.common.maskable.evaluation import (
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 from sb3_contrib.common.wrappers import ActionMasker
 from scipy import stats
+from stable_baselines3 import A2C
 from stable_baselines3.common.base_class import BaseAlgorithm
+from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.evaluation import (
+    evaluate_policy as non_maskable_evaluate_policy,
+)
 from stable_baselines3.common.monitor import Monitor
 from tqdm import tqdm
 
 from .electricity_market_env import ElectricityMarketEnv, EnvConfig
 
 # %% ../nbs/01_electricity_market_player.ipynb 4
-TOTAL_TIMESTEPS = 10  # 2190
-N_EPISODES = 10  # 10_000
+TOTAL_TIMESTEPS = 10_000
+N_EPISODES = 10
 N_TRAILS = 10
 N_JOBS = 7
 seeds = [123456]  # , 234567] #, 345678, 456789, 567890]
@@ -153,6 +159,95 @@ class MaskableRandomAgent(Agent):
         raise NotImplementedError
 
 # %% ../nbs/01_electricity_market_player.ipynb 7
+class A2CAgent(Agent):
+    @classmethod
+    def collect_episodes_rewards(
+        cls,
+        model: A2C,
+        env: ElectricityMarketEnv,
+        n_episodes: int = N_EPISODES,
+        deterministic: bool = True,
+        render: bool = False,
+        seed: int | None = None,
+    ) -> list[float]:
+        env.reset(seed=seed)
+        episode_rewards, _ = non_maskable_evaluate_policy(
+            model,
+            env,
+            deterministic=deterministic,
+            return_episode_rewards=True,
+            n_eval_episodes=n_episodes,
+            render=render,
+        )
+        return episode_rewards
+
+    @classmethod
+    def evaluate_policy(
+        cls,
+        hyperparameters: dict | None = None,
+        n_episodes: int = N_EPISODES,
+        render: bool = False,
+    ) -> np.ndarray:
+        global seeds, frames, env_config
+
+        if hyperparameters is None:
+            hyperparameters = {}
+        all_rewards = []
+
+        for seed in tqdm(seeds, desc="seeds"):
+            env = Monitor(
+                ElectricityMarketEnv(env_config, render_mode="human"),
+            )
+
+            model = A2C(
+                "MlpPolicy",
+                env,
+                verbose=0,
+                seed=seed,
+                **hyperparameters,
+                tensorboard_log="./a2c_tensorboard/",
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+            checkpoint_callback = CheckpointCallback(
+                save_freq=10000, save_path="./logs/"
+            )
+            seed_rewards = []
+
+            for frame in tqdm(frames, desc="frames", leave=False):
+                model.learn(
+                    total_timesteps=frame,
+                    reset_num_timesteps=False,
+                    callback=checkpoint_callback,
+                )
+                rewards = cls.collect_episodes_rewards(
+                    model,
+                    env,
+                    n_episodes=n_episodes,
+                    deterministic=True,
+                    render=render,
+                    seed=seed,
+                )
+                seed_rewards.append(rewards)
+
+            seed_rewards = np.array(
+                seed_rewards
+            )  # Shape: (num_checkpoints, num_episodes)
+            all_rewards.append(seed_rewards)
+
+        all_rewards = np.array(
+            all_rewards
+        )  # Shape: (num_seeds, num_checkpoints, num_episodes)
+        print(
+            "\nCollected Rewards (shape: seeds x checkpoints x episodes):\n",
+            all_rewards,
+        )
+        return all_rewards
+
+    @classmethod
+    def optimize_agent(cls, trial, n_episodes: int = N_EPISODES):
+        raise NotImplementedError
+
+# %% ../nbs/01_electricity_market_player.ipynb 8
 class MaskablePPOAgent(Agent):
     @classmethod
     def collect_episodes_rewards(
@@ -198,13 +293,25 @@ class MaskablePPOAgent(Agent):
             )
 
             model = MaskablePPO(
-                MaskableActorCriticPolicy, env, verbose=0, seed=seed, **hyperparameters
+                MaskableActorCriticPolicy,
+                env,
+                verbose=0,
+                seed=seed,
+                **hyperparameters,
+                tensorboard_log="./maskable_ppo_tensorboard/",
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
+            checkpoint_callback = CheckpointCallback(
+                save_freq=10000, save_path="./logs/"
             )
             seed_rewards = []
 
             for frame in tqdm(frames, desc="frames", leave=False):
                 model.learn(
-                    total_timesteps=frame, use_masking=True, reset_num_timesteps=False
+                    total_timesteps=frame,
+                    use_masking=True,
+                    reset_num_timesteps=False,
+                    callback=checkpoint_callback,
                 )
                 rewards = cls.collect_episodes_rewards(
                     model,
@@ -287,7 +394,7 @@ class MaskablePPOAgent(Agent):
 
         return aggregated_performance
 
-# %% ../nbs/01_electricity_market_player.ipynb 8
+# %% ../nbs/01_electricity_market_player.ipynb 9
 # Function to compute aggregated metrics for each algorithm
 
 
@@ -434,32 +541,37 @@ def plot_performance_profiles(evaluation_results, algorithms):
 
 
 def plot_learning_curves(evaluation_results, algorithms):
-    """Plots learning curves for multiple algorithms."""
+    """Plots learning curves over training timesteps for multiple algorithms."""
+    global frames
     plt.figure(figsize=(12, 8))
 
-    n_episodes = evaluation_results[algorithms[0]].shape[2]
-    episodes = np.arange(1, n_episodes + 1)
+    # Convert frames (checkpoints) to cumulative timesteps
+    total_timesteps = frames  # X-axis: total timesteps
 
     for algorithm in algorithms:
-        mean_rewards_per_episode = np.mean(evaluation_results[algorithm], axis=(0, 1))
-        std_rewards_per_episode = np.std(evaluation_results[algorithm], axis=(0, 1))
+        rewards = evaluation_results[algorithm]  # Shape: (seeds, checkpoints, episodes)
+
+        # Mean reward per checkpoint (average over seeds and episodes)
+        mean_rewards_per_checkpoint = np.mean(rewards, axis=(0, 2))
+        std_rewards_per_checkpoint = np.std(rewards, axis=(0, 2))
+
         plt.plot(
-            episodes,
-            mean_rewards_per_episode,
+            total_timesteps,
+            mean_rewards_per_checkpoint,
             label=algorithm,
             marker="o",
             linestyle="-",
         )
         plt.fill_between(
-            episodes,
-            mean_rewards_per_episode - std_rewards_per_episode,
-            mean_rewards_per_episode + std_rewards_per_episode,
+            total_timesteps,
+            mean_rewards_per_checkpoint - std_rewards_per_checkpoint,
+            mean_rewards_per_checkpoint + std_rewards_per_checkpoint,
             alpha=0.2,
         )
 
-    plt.xlabel("Episodes", fontsize=14)
+    plt.xlabel("Total Timesteps", fontsize=14)
     plt.ylabel("Mean Episode Reward", fontsize=14)
-    plt.title("Learning Curves of Multiple Algorithms", fontsize=16, fontweight="bold")
+    plt.title("Learning Curves Over Training Timesteps", fontsize=16, fontweight="bold")
 
     plt.legend(loc="best", fontsize=12, title="Algorithms")
     plt.grid(True, linestyle="--", alpha=0.6)
@@ -477,6 +589,9 @@ def plot_evaluation_results(evaluation_results: dict) -> None:
     global frames
     algorithms = list(evaluation_results.keys())
 
+    # Plot Learning Curves
+    plot_learning_curves(evaluation_results, algorithms)
+
     # Aggregate the results across seeds and checkpoints
     aggregated_results = aggregate_over_checkpoints(evaluation_results)
 
@@ -492,15 +607,13 @@ def plot_evaluation_results(evaluation_results: dict) -> None:
     # Plot Performance Profiles
     plot_performance_profiles(evaluation_results, algorithms)
 
-    # Plot Learning Curves
-    plot_learning_curves(evaluation_results, algorithms)
-
-# %% ../nbs/01_electricity_market_player.ipynb 9
+# %% ../nbs/01_electricity_market_player.ipynb 10
+a2c_agent = A2CAgent()
 maskable_random_agent = MaskableRandomAgent()
 maskable_ppo_agent = MaskablePPOAgent()
 
 # %% ../nbs/01_electricity_market_player.ipynb 11
-results["MaskableRandomAgent"] = maskable_random_agent.evaluate_policy(
+results["A2CAgent"] = a2c_agent.evaluate_policy(
     hyperparameters=None, n_episodes=N_EPISODES, render=False
 )
 
@@ -508,7 +621,7 @@ results["MaskableRandomAgent"] = maskable_random_agent.evaluate_policy(
 plot_evaluation_results(results)
 
 # %% ../nbs/01_electricity_market_player.ipynb 14
-results["MaskablePPOAgent_Baseline"] = maskable_ppo_agent.evaluate_policy(
+results["MaskableRandomAgent"] = maskable_random_agent.evaluate_policy(
     hyperparameters=None, n_episodes=N_EPISODES, render=False
 )
 
@@ -516,15 +629,23 @@ results["MaskablePPOAgent_Baseline"] = maskable_ppo_agent.evaluate_policy(
 plot_evaluation_results(results)
 
 # %% ../nbs/01_electricity_market_player.ipynb 17
+results["MaskablePPOAgent_Baseline"] = maskable_ppo_agent.evaluate_policy(
+    hyperparameters=None, n_episodes=N_EPISODES, render=False
+)
+
+# %% ../nbs/01_electricity_market_player.ipynb 18
+plot_evaluation_results(results)
+
+# %% ../nbs/01_electricity_market_player.ipynb 20
 study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
 study.optimize(maskable_ppo_agent.optimize_agent, n_trials=N_TRAILS, n_jobs=N_JOBS)
 
 print("Best trial:", study.best_trial)
 
-# %% ../nbs/01_electricity_market_player.ipynb 19
+# %% ../nbs/01_electricity_market_player.ipynb 22
 results["MaskablePPOAgent_Optimized"] = maskable_ppo_agent.evaluate_policy(
     hyperparameters=study.best_trial.params, n_episodes=N_EPISODES, render=False
 )
 
-# %% ../nbs/01_electricity_market_player.ipynb 20
+# %% ../nbs/01_electricity_market_player.ipynb 23
 plot_evaluation_results(results)
