@@ -28,13 +28,12 @@ from sb3_contrib.common.wrappers import ActionMasker
 from scipy import stats
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
 from tqdm import tqdm
 
 from .electricity_market_env import ElectricityMarketEnv, EnvConfig
 
 # %% ../nbs/01_electricity_market_player.ipynb 4
-TOTAL_TIMESTEPS = 20  # 5000
+TOTAL_TIMESTEPS = 10  # 2190
 N_EPISODES = 10  # 10_000
 N_TRAILS = 10
 N_JOBS = 7
@@ -59,7 +58,7 @@ class Agent(ABC):
     def collect_episodes_rewards(
         cls,
         model: BaseAlgorithm | None,
-        env: ElectricityMarketEnv | DummyVecEnv,
+        env: ElectricityMarketEnv,
         n_episodes: int = N_EPISODES,
         deterministic: bool = True,
         render: bool = False,
@@ -159,13 +158,13 @@ class MaskablePPOAgent(Agent):
     def collect_episodes_rewards(
         cls,
         model: MaskablePPO,
-        env: DummyVecEnv,
+        env: ElectricityMarketEnv,
         n_episodes: int = N_EPISODES,
         deterministic: bool = True,
         render: bool = False,
         seed: int | None = None,
     ) -> list[float]:
-        env.seed(seed=seed)
+        env.reset(seed=seed)
         episode_rewards, _ = maskable_evaluate_policy(
             model,
             env,
@@ -191,15 +190,11 @@ class MaskablePPOAgent(Agent):
         all_rewards = []
 
         for seed in tqdm(seeds, desc="seeds"):
-            env = DummyVecEnv(
-                [
-                    lambda: Monitor(
-                        ActionMasker(
-                            ElectricityMarketEnv(env_config, render_mode="human"),
-                            cls.mask_fn,
-                        )
-                    )
-                ]
+            env = Monitor(
+                ActionMasker(
+                    ElectricityMarketEnv(env_config, render_mode="human"),
+                    cls.mask_fn,
+                )
             )
 
             model = MaskablePPO(
@@ -251,15 +246,11 @@ class MaskablePPOAgent(Agent):
         trial_seed_rewards = []
 
         for seed in tqdm(seeds, desc="seeds"):
-            env = DummyVecEnv(
-                [
-                    lambda: Monitor(
-                        ActionMasker(
-                            ElectricityMarketEnv(env_config, render_mode="human"),
-                            maskable_ppo_agent.mask_fn,
-                        )
-                    )
-                ]
+            env = Monitor(
+                ActionMasker(
+                    ElectricityMarketEnv(env_config, render_mode="human"),
+                    maskable_ppo_agent.mask_fn,
+                )
             )
 
             model = MaskablePPO(
