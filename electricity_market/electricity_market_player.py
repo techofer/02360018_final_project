@@ -73,7 +73,7 @@ class Agent(ABC):
         hyperparameters: dict | None = None,
         n_episodes: int = N_EPISODES,
         render: bool = False,
-    ) -> np.array:
+    ) -> np.ndarray:
         raise NotImplementedError
 
     @classmethod
@@ -85,7 +85,7 @@ class MaskableRandomAgent(Agent):
     @classmethod
     def collect_episodes_rewards(
         cls,
-        model: BaseAlgorithm,  # Unused for a random agent
+        model: BaseAlgorithm | None,  # Unused for a random agent
         env: ElectricityMarketEnv,
         n_episodes: int = N_EPISODES,
         deterministic: bool = True,
@@ -119,7 +119,7 @@ class MaskableRandomAgent(Agent):
         hyperparameters: dict | None = None,
         n_episodes: int = N_EPISODES,
         render: bool = False,
-    ) -> np.array:
+    ) -> np.ndarray:
         global seeds, frames, env_config
 
         all_rewards = []
@@ -183,7 +183,7 @@ class MaskablePPOAgent(Agent):
         hyperparameters: dict | None = None,
         n_episodes: int = N_EPISODES,
         render: bool = False,
-    ) -> np.array:
+    ) -> np.ndarray:
         global seeds, frames, env_config
 
         if hyperparameters is None:

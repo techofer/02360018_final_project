@@ -57,10 +57,10 @@ WEATHER_PROBABILITIES_MAP_PER_SEASON = {
 # %% ../nbs/00_electricity_market_env.ipynb 5
 @dataclass
 class EnvConfig:
-    max_timestep: int = 365 * (24 / 4)  # default: a full year
+    max_timestep: int = 365 * 6  # default: a full year in timesteps
     init_battery_capacity: int = 250  # default: 25 kWh
     init_state_of_charge: int = 200  # default: 20 kWh
-    production_capacity: int = 720 / 6  # default: 72 kWh/day
+    production_capacity: float = 720 / 6  # default: 72 kWh/day
 
 # %% ../nbs/00_electricity_market_env.ipynb 6
 class ElectricityMarketEnv(gym.Env):
@@ -73,7 +73,7 @@ class ElectricityMarketEnv(gym.Env):
         self.render_mode = render_mode
         # each timestep is 4 hours
         self._timestep_duration_in_hours = 4
-        self._episode_obs = []
+        self._episode_obs: list = []
         self._timestep = 0
         # Decided On granularity of 100 Wh
         self._battery_capacity = self._config.init_battery_capacity
