@@ -57,10 +57,22 @@ WEATHER_PROBABILITIES_MAP_PER_SEASON = {
 # %% ../nbs/00_electricity_market_env.ipynb 5
 @dataclass
 class EnvConfig:
-    max_timestep: int = 365 * 6  # default: a full year in timesteps
+    max_timestep: int = 365 * 6 * 8  # default: 8 year in timesteps
     init_battery_capacity: int = 250  # default: 25 kWh
     init_state_of_charge: int = 200  # default: 20 kWh
     production_capacity: float = 720 / 6  # default: 72 kWh/day
+    base_price: float = 0.065  # 0.65 NIS per kWh
+    night_price_factor: float = 1.1
+    high_demand_seasons_price_factor: float = 1.2
+    night_demand_factor: float = 1.1
+    high_demand_seasons_demand_factor: float = 1.2
+    base_demand_of_electricity: int = 75  # 75 * 100 Wh per timestep
+    # battery safe range
+    battery_safe_range_ratios: tuple[float, float] = (0.2, 0.8)
+    battery_degradation_factor: float = 0.9999
+    # degradation when unsafe is 10 time faster
+    battery_unsafe_degradation_exponent: int = 10
+    battery_capacity_ratio_for_termination: float = 0.2
 
 # %% ../nbs/00_electricity_market_env.ipynb 6
 class ElectricityMarketEnv(gym.Env):
@@ -82,17 +94,26 @@ class ElectricityMarketEnv(gym.Env):
         self._production_capacity = self._config.production_capacity
         self._max_timestep = self._config.max_timestep
 
-        self._base_price = 0.065  # 0.65 NIS per kWh
-        self._night_price_factor = 1.1
-        self._high_demand_seasons_price_factor = 1.2
-        self._battery_degradation = 0.9999
+        self._base_price = self._config.base_price
+        self._night_price_factor = self._config.night_price_factor
+        self._high_demand_seasons_price_factor = (
+            self._config.high_demand_seasons_price_factor
+        )
+        self._battery_degradation_factor = self._config.battery_degradation_factor
+        self._battery_unsafe_degradation_exponent = (
+            self._config.battery_unsafe_degradation_exponent
+        )
 
-        self._night_demand_factor = 1.1
-        self._high_demand_seasons_demand_factor = 1.2
-        self._base_demand_of_electricity = 75  # 75 * 100 Wh per timestep
+        self._battery_capacity_ratio_for_termination = (
+            self._config.battery_capacity_ratio_for_termination
+        )
+        self._night_demand_factor = self._config.night_demand_factor
+        self._high_demand_seasons_demand_factor = (
+            self._config.high_demand_seasons_demand_factor
+        )
+        self._base_demand_of_electricity = self._config.base_demand_of_electricity
 
-        # battery safe range, in percents
-        self._battery_safe_range_percents = (20, 80)
+        self._battery_safe_range_ratios = self._config.battery_safe_range_ratios
 
         self.__weather = self._get_weather()
         self.__sell_price = self._get_sell_price()
@@ -138,10 +159,19 @@ class ElectricityMarketEnv(gym.Env):
         target_state_of_charge = self._current_state_of_charge + charge_amount
         return 0 <= target_state_of_charge <= self._battery_capacity
 
+    @property
+    def _is_done(self):
+        return (
+            self._battery_capacity
+            <= self._config.init_battery_capacity
+            * self._battery_capacity_ratio_for_termination
+        )
+
     def step(self, action: int) -> tuple:
         charge_amount = self._charge_amount(action)
-        done = self._battery_capacity <= self._config.init_battery_capacity * 0.5
-        truncated = self._timestep >= self._max_timestep or done
+        truncated = self._timestep >= self._max_timestep
+        done = self._is_done or truncated
+
         if not self._is_action_valid(action):
             reward = -1
             self._timestep += 1
@@ -153,10 +183,13 @@ class ElectricityMarketEnv(gym.Env):
             return observations, reward, done, truncated, {}
 
         self._current_state_of_charge += charge_amount
-        self._battery_capacity *= self._battery_degradation
+        self._battery_capacity *= self._battery_degradation_factor
         # if violated the safe range, extra degradation
         if self._is_safe_range_violation:
-            self._battery_capacity *= self._battery_degradation**5
+            self._battery_capacity *= (
+                self._battery_degradation_factor
+                ** self._battery_unsafe_degradation_exponent
+            )
         reward = self._reward(action)
         self._timestep += 1
         self.__weather = self._get_weather()
@@ -269,8 +302,8 @@ class ElectricityMarketEnv(gym.Env):
 
     @property
     def _battery_safe_range(self) -> tuple[float, float]:
-        low, high = self._battery_safe_range_percents
-        return low * self._battery_capacity / 100, high * self._battery_capacity / 100
+        low, high = self._battery_safe_range_ratios
+        return low * self._battery_capacity, high * self._battery_capacity
 
     @property
     def _max_price(self) -> float:
@@ -345,7 +378,7 @@ class ElectricityMarketEnv(gym.Env):
         )
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:
-        if not self._episode_obs or self._timestep < self._config.max_timestep:
+        if not self._is_done and self._timestep < self._config.max_timestep:
             return []
 
         observations = np.array(self._episode_obs)

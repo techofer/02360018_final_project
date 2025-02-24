@@ -187,5 +187,5 @@ _docs/
 logs/
 
 .DS_Store
-a2c_tensorboard
-maskable_ppo_tensorboard
+*_tensorboard
+optuna_study.db
