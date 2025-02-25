@@ -36,6 +36,7 @@ N_EPISODES = 3
 N_TRAILS = 10
 SEEDS = [
     111111,
+    121212,
     123456,
     200000,
     217890,
@@ -286,10 +287,12 @@ class ModelAgent(Agent):
                 episode_rewards = []
                 steps = 0
                 done = False
+                truncated = False
 
                 while not done:
                     obs_tensor = torch.tensor(obs, dtype=torch.float32).to(self.device)
                     if isinstance(self, MaskableAgent):
+
                         action, _ = self.model.predict(
                             obs_tensor, action_masks=MaskableAgent.mask_fn(self.env)
                         )
@@ -301,13 +304,11 @@ class ModelAgent(Agent):
                     steps += 1
 
                     if done or truncated:
-                        # For some reason sometime learn fails when using action masks, we will ignore those failures
-                        try:
-                            self.model.learn(
-                                total_timesteps=steps, callback=checkpoint_callback
-                            )
-                        except ValueError:
-                            pass
+
+                        self.model.learn(
+                            total_timesteps=steps, callback=checkpoint_callback
+                        )
+
 
                 all_rewards.append(np.sum(episode_rewards))
                 total_steps += steps
@@ -547,15 +548,11 @@ class MaskablePPOAgent(ModelAgent, MaskableAgent):
                 device=self.device,
             )
 
-            # For some reason sometime learn fails when using action masks, we will ignore those failures
-            try:
-                model.learn(
-                    total_timesteps=self.env_config.max_timestep,
-                    use_masking=True,
-                    reset_num_timesteps=False,
-                )
-            except ValueError:
-                pass
+            model.learn(
+                total_timesteps=self.env_config.max_timestep,
+                use_masking=True,
+                reset_num_timesteps=False,
+            )
 
 
             # Collect rewards for evaluation
