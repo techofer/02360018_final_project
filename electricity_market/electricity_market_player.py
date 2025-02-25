@@ -4,10 +4,11 @@
 
 # %% auto 0
 __all__ = ['N_EPISODES', 'N_TRAILS', 'SEEDS', 'ENV_CONFIG', 'QUICK_MODE', 'training_data_per_agent', 'evaluation_data_per_agent',
-           'TrainingData', 'EvaluationData', 'plot_all_metrics', 'Agent', 'ModelAgent', 'MaskableAgent',
+           'TrainingData', 'EvaluationData', 'Agent', 'ModelAgent', 'MaskableAgent', 'plot_all_metrics',
            'MaskableRandomAgent', 'A2CAgent', 'MaskablePPOAgent', 'is_action_safe', 'expert_knowledge_action_masks']
 
 # %% ../nbs/01_electricity_market_player.ipynb 3
+import itertools
 import pickle
 from abc import ABC
 from collections import defaultdict
@@ -17,7 +18,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import optuna
-import rliable
+import rliable.metrics
+import rliable.plot_utils
 import seaborn as sns
 import torch
 import yaml
@@ -91,6 +93,129 @@ class EvaluationData:
     rewards: list[float]
 
 # %% ../nbs/01_electricity_market_player.ipynb 6
+class Agent(ABC):
+    def __init__(self, name):
+        self.name = name
+
+    def evaluate(self):
+        """
+        Evaluate the model, and return EvaluationData.
+        """
+        raise NotImplementedError
+
+
+class ModelAgent(Agent):
+    def __init__(self, name, env, model, device):
+        super().__init__(name)
+        self.device = device
+        self.model = model
+        self.env = env
+
+    def train(self) -> TrainingData:
+        """
+        Train the model, and return TrainingData.
+        """
+        all_rewards = []
+        all_steps = []
+        total_steps = 0
+        checkpoint_callback = CheckpointCallback(save_freq=1000, save_path="./logs/")
+
+        # Training loop
+        for seed in tqdm(SEEDS, desc="seeds"):
+            for _ in tqdm(range(N_EPISODES), desc="Training episodes"):
+                obs, _ = self.env.reset(seed=seed)
+                episode_rewards = []
+                steps = 0
+                done = False
+
+                while not done:
+                    obs_tensor = torch.tensor(obs, dtype=torch.float32).to(self.device)
+                    if isinstance(self, MaskableAgent):
+
+                        action, _ = self.model.predict(
+                            obs_tensor, action_masks=MaskableAgent.mask_fn(self.env)
+                        )
+                    else:
+                        action, _ = self.model.predict(obs_tensor)
+
+                    obs, reward, done, truncated, _ = self.env.step(action)
+                    episode_rewards.append(reward)
+                    steps += 1
+
+                    if done or truncated:
+
+                        self.model.learn(
+                            total_timesteps=steps, callback=checkpoint_callback
+                        )
+
+                all_rewards.append(np.sum(episode_rewards))
+                total_steps += steps
+                all_steps.append(total_steps)
+
+        return TrainingData(
+            steps=all_steps,
+            episodes=list(range(len(all_rewards))),
+            rewards=all_rewards,
+        )
+
+    def evaluate(self, render: bool = False) -> EvaluationData:
+        """
+        Evaluate the model, and return EvaluationData.
+        """
+        all_rewards = []
+
+        for seed in tqdm(SEEDS, desc="seeds"):
+            for _ in tqdm(range(N_EPISODES), desc="Evaluation episodes"):
+                obs, _ = self.env.reset(seed=seed)
+                episode_rewards = []
+                done = False
+
+                while not done:
+                    # Convert observation to torch tensor
+                    obs_tensor = torch.tensor(obs, dtype=torch.float32).to(self.device)
+
+                    if isinstance(self, MaskableAgent):
+                        action, _ = self.model.predict(
+                            obs_tensor,
+                            action_masks=MaskableAgent.mask_fn(self.env),
+                            deterministic=True,
+                        )
+                    else:
+                        action, _ = self.model.predict(obs_tensor, deterministic=True)
+                    obs, reward, done, truncated, _ = self.env.step(action)
+                    episode_rewards.append(reward)
+
+                    if render:
+                        self.env.render()
+
+                    if truncated:
+                        break
+
+                all_rewards.append(np.sum(episode_rewards))
+
+        return EvaluationData(
+            episodes=list(range(len(all_rewards))),
+            rewards=all_rewards,
+        )
+
+    def save_model(self, model_path: Path) -> None:
+        self.model.save(str(model_path))
+
+    def load_model(self, model_path: Path) -> None:
+        self.model.load(str(model_path))
+
+
+class MaskableAgent(Agent):
+    @staticmethod
+    def mask_fn(env):
+        """
+        Placeholder mask function if needed.
+        """
+        if isinstance(env, Monitor):
+            return env.env.action_masks()
+        return env.action_masks()
+
+# %% ../nbs/01_electricity_market_player.ipynb 7
 def plot_all_metrics(
     agent_train_data: dict[str, TrainingData],
     agent_eval_data: dict[str, EvaluationData],
@@ -99,8 +224,8 @@ def plot_all_metrics(
 
     def plot_learning_curve():
         for agent, data in agent_train_data.items():
-            plt.plot(data.steps, data.rewards, label=f"{agent} Learning Curve")
-        plt.xlabel("Steps")
+            plt.plot(data.episodes, data.rewards, label=f"{agent} Learning Curve")
+        plt.xlabel("Episodes")
         plt.ylabel("Reward")
         plt.title("Learning Curves")
         plt.legend()
@@ -133,17 +258,21 @@ def plot_all_metrics(
         plt.show()
 
     def plot_time_to_convergence():
-        for agent, data in agent_train_data.items():
-            # Ensure that data.rewards is a 1D array before using np.diff
+        colors = sns.color_palette("tab10", n_colors=len(agent_train_data))
+
+        for i, (agent, data) in enumerate(agent_train_data.items()):
             if len(np.shape(data.rewards)) == 1:
                 converged_step = np.argmax(
                     np.diff(data.rewards) < 0.01
                 )  # Example threshold for convergence
                 plt.axvline(
-                    x=data.steps[converged_step], label=f"{agent} Time to Convergence"
+                    x=data.steps[converged_step],
+                    color=colors[i],
+                    label=f"{agent} Time to Convergence",
                 )
             else:
                 print(f"Skipping {agent} due to invalid rewards data shape.")
+
         plt.xlabel("Steps")
         plt.ylabel("Reward")
         plt.title("Time-to-Convergence")
@@ -151,26 +280,89 @@ def plot_all_metrics(
         plt.show()
 
     def plot_aggregate_metrics():
+        metrics = {
+            "IQM": [],
+            "Median": [],
+            "Mean": [],
+        }
+        agent_names = list(agent_eval_data.keys())
+
         for agent, data in agent_eval_data.items():
-            plt.plot(data.episodes, data.rewards, label=f"{agent} Performance")
-        plt.xlabel("Episodes")
-        plt.ylabel("Reward")
-        plt.title("Aggregate Evaluation Metrics")
-        plt.legend()
+            rewards_matrix = np.array(data.rewards).reshape(len(SEEDS), N_EPISODES)
+
+            metrics["IQM"].append(rliable.metrics.aggregate_iqm(rewards_matrix))
+            metrics["Median"].append(rliable.metrics.aggregate_median(rewards_matrix))
+            metrics["Mean"].append(rliable.metrics.aggregate_mean(rewards_matrix))
+
+        # Create subplots for each metric
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+        for ax, (metric_name, values) in zip(axes, metrics.items()):
+            sns.barplot(
+                x=agent_names,
+                y=values,
+                ax=ax,
+                hue=agent_names,
+                palette="tab10",
+                capsize=0.1,
+                legend=False,
+            )
+            ax.set_title(f"{metric_name} Reward")
+            ax.set_xlabel("Agent")
+            ax.set_ylabel("Reward")
+            ax.tick_params(axis="x", rotation=45)
+
+        plt.suptitle("Aggregate Evaluation Metrics (rliable)")
+        plt.tight_layout()
         plt.show()
 
     def plot_probability_of_improvement():
-        improvements = defaultdict(list)
-        for agent, data in agent_eval_data.items():
-            baseline_rewards = data.rewards[: len(data.rewards) // 2]
-            improvement = np.mean(data.rewards[len(data.rewards) // 2 :]) - np.mean(
-                baseline_rewards
+        # Create a list of all agents (keys from agent_eval_data)
+        agents = list(agent_eval_data.keys())
+
+        # Dictionaries to hold the probability estimates and interval estimates
+        probability_estimates = {}
+        probability_interval_estimates = {}
+
+        # Compare each pair of agents using itertools.combinations
+        for agent1, agent2 in itertools.combinations(agents, 2):
+            # Get the rewards for each agent as lists
+            rewards1 = agent_eval_data[agent1].rewards
+            rewards2 = agent_eval_data[agent2].rewards
+
+            rewards1_reshaped = np.array(rewards1).reshape(len(SEEDS), N_EPISODES)
+            rewards2_reshaped = np.array(rewards2).reshape(len(SEEDS), N_EPISODES)
+
+            # Calculate the probability of improvement between the two agents
+            prob_improvement = rliable.metrics.probability_of_improvement(
+                rewards1_reshaped, rewards2_reshaped
             )
-            improvements[agent] = improvement
-        plt.bar(improvements.keys(), improvements.values())
-        plt.xlabel("Agent")
-        plt.ylabel("Average Improvement")
-        plt.title("Probability of Improvement Between Algorithms")
+
+            # Calculate the confidence intervals (e.g., bootstrap method, here assuming it is available)
+            # If you have an existing method to calculate the intervals, apply it
+            # For simplicity, we use placeholders here
+            prob_interval = [0.0, 1.0]  # Replace with actual interval calculation
+
+            # Store the probability and interval estimates
+            pair = f"{agent1},{agent2}"
+            probability_estimates[pair] = prob_improvement
+            probability_interval_estimates[pair] = prob_interval
+
+        # Plot the probability of improvement using the rliable function
+        rliable.plot_utils.plot_probability_of_improvement(
+            probability_estimates,
+            probability_interval_estimates,
+            ax=None,
+            figsize=(8, 6),
+            colors=None,
+            color_palette="colorblind",
+            alpha=0.75,
+            xlabel="P(X > Y)",
+            left_ylabel="Algorithm X",
+            right_ylabel="Algorithm Y",
+        )
+
+        plt.title("Probability of Improvement between Algorithms")
         plt.show()
 
     def plot_performance_profiles():
@@ -251,131 +443,6 @@ def plot_all_metrics(
     plot_regret_analysis()
     plot_robustness_to_perturbations()
     plot_pareto_frontier()
-
-# %% ../nbs/01_electricity_market_player.ipynb 7
-class Agent(ABC):
-    def __init__(self, name):
-        self.name = name
-
-    def evaluate(self):
-        """
-        Evaluate the model, and return EvaluationData.
-        """
-        raise NotImplementedError
-
-
-class ModelAgent(Agent):
-    def __init__(self, name, env, model, device):
-        super().__init__(name)
-        self.device = device
-        self.model = model
-        self.env = env
-
-    def train(self) -> TrainingData:
-        """
-        Train the model, and return TrainingData.
-        """
-        all_rewards = []
-        all_steps = []
-        total_steps = 0
-        checkpoint_callback = CheckpointCallback(save_freq=1000, save_path="./logs/")
-
-        # Training loop
-        for seed in tqdm(SEEDS, desc="seeds"):
-            for _ in tqdm(range(N_EPISODES), desc="Training episodes"):
-                obs, _ = self.env.reset(seed=seed)
-                episode_rewards = []
-                steps = 0
-                done = False
-                truncated = False
-
-                while not done:
-                    obs_tensor = torch.tensor(obs, dtype=torch.float32).to(self.device)
-                    if isinstance(self, MaskableAgent):
-
-                        action, _ = self.model.predict(
-                            obs_tensor, action_masks=MaskableAgent.mask_fn(self.env)
-                        )
-                    else:
-                        action, _ = self.model.predict(obs_tensor)
-
-                    obs, reward, done, truncated, _ = self.env.step(action)
-                    episode_rewards.append(reward)
-                    steps += 1
-
-                    if done or truncated:
-
-                        self.model.learn(
-                            total_timesteps=steps, callback=checkpoint_callback
-                        )
-
-
-                all_rewards.append(np.sum(episode_rewards))
-                total_steps += steps
-                all_steps.append(total_steps)
-
-        return TrainingData(
-            steps=all_steps,
-            episodes=list(range(len(all_rewards))),
-            rewards=all_rewards,
-        )
-
-    def evaluate(self, render: bool = False) -> EvaluationData:
-        """
-        Evaluate the model, and return EvaluationData.
-        """
-        all_rewards = []
-
-        for seed in tqdm(SEEDS, desc="seeds"):
-            for _ in tqdm(range(N_EPISODES), desc="Evaluation episodes"):
-                obs, _ = self.env.reset(seed=seed)
-                episode_rewards = []
-                done = False
-
-                while not done:
-                    # Convert observation to torch tensor
-                    obs_tensor = torch.tensor(obs, dtype=torch.float32).to(self.device)
-
-                    if isinstance(self, MaskableAgent):
-                        action, _ = self.model.predict(
-                            obs_tensor,
-                            action_masks=MaskableAgent.mask_fn(self.env),
-                            deterministic=True,
-                        )
-                    else:
-                        action, _ = self.model.predict(obs_tensor, deterministic=True)
-                    obs, reward, done, truncated, _ = self.env.step(action)
-                    episode_rewards.append(reward)
-
-                    if render:
-                        self.env.render()
-
-                    if truncated:
-                        break
-
-                all_rewards.append(np.sum(episode_rewards))
-
-        return EvaluationData(
-            episodes=list(range(len(all_rewards))),
-            rewards=all_rewards,
-        )
-
-    def save_model(self, model_path: Path) -> None:
-        self.model.save(str(model_path))
-
-    def load_model(self, model_path: Path) -> None:
-        self.model.load(str(model_path))
-
-
-class MaskableAgent(Agent):
-    @staticmethod
-    def mask_fn(env):
-        """
-        Placeholder mask function if needed.
-        """
-        if isinstance(env, Monitor):
-            return env.env.action_masks()
-        return env.action_masks()
 
 # %% ../nbs/01_electricity_market_player.ipynb 8
 class MaskableRandomAgent(MaskableAgent):
@@ -553,7 +620,6 @@ class MaskablePPOAgent(ModelAgent, MaskableAgent):
                 use_masking=True,
                 reset_num_timesteps=False,
             )
-
 
             # Collect rewards for evaluation
             episode_rewards = self.collect_episodes_rewards(model, env)
