@@ -4,8 +4,8 @@
 
 # %% auto 0
 __all__ = ['N_EPISODES', 'N_TRAILS', 'SEEDS', 'ENV_CONFIG', 'QUICK_MODE', 'training_data_per_agent', 'evaluation_data_per_agent',
-           'TrainingData', 'EvaluationData', 'Agent', 'ModelAgent', 'MaskableAgent', 'MaskableRandomAgent', 'A2CAgent',
-           'MaskablePPOAgent', 'is_action_safe', 'expert_knowledge_action_masks']
+           'Agent', 'ModelAgent', 'MaskableAgent', 'MaskableRandomAgent', 'A2CAgent', 'MaskablePPOAgent',
+           'is_action_safe', 'expert_knowledge_action_masks']
 
 # %% ../nbs/10_player.ipynb 3
 import pickle
@@ -75,19 +75,6 @@ training_data_per_agent = {}
 evaluation_data_per_agent = {}
 
 # %% ../nbs/10_player.ipynb 5
-@dataclass
-class TrainingData:
-    steps: list[int]
-    episodes: list[int]
-    rewards: list[float]
-
-
-@dataclass
-class EvaluationData:
-    episodes: list[int]
-    rewards: list[float]
-
-# %% ../nbs/10_player.ipynb 6
 class Agent(ABC):
     def __init__(self, name):
         self.name = name
@@ -210,7 +197,7 @@ class MaskableAgent(Agent):
             return env.env.action_masks()
         return env.action_masks()
 
-# %% ../nbs/10_player.ipynb 7
+# %% ../nbs/10_player.ipynb 6
 class MaskableRandomAgent(MaskableAgent):
     def __init__(
         self,
@@ -266,7 +253,7 @@ class MaskableRandomAgent(MaskableAgent):
             rewards=all_rewards,
         )
 
-# %% ../nbs/10_player.ipynb 8
+# %% ../nbs/10_player.ipynb 7
 class A2CAgent(ModelAgent):
     """A2C Agent for the Electricity Market Environment."""
 
@@ -289,7 +276,7 @@ class A2CAgent(ModelAgent):
         )
         super().__init__(name=name, env=env, model=model, device=device)
 
-# %% ../nbs/10_player.ipynb 9
+# %% ../nbs/10_player.ipynb 8
 class MaskablePPOAgent(ModelAgent, MaskableAgent):
     """Maskable PPO Agent for the Electricity Market Environment."""
 
@@ -426,7 +413,7 @@ class MaskablePPOAgent(ModelAgent, MaskableAgent):
         with open(filename, "w") as file:
             yaml.dump(self.optimized_hyperparameters, file)
 
-# %% ../nbs/10_player.ipynb 19
+# %% ../nbs/10_player.ipynb 18
 def is_action_safe(self, action: int) -> bool:
     charge_amount = self._charge_amount(action)
     target_state_of_charge = self._current_state_of_charge + charge_amount
