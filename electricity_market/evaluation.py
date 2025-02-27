@@ -16,13 +16,14 @@ import rliable.metrics
 import rliable.plot_utils
 import seaborn as sns
 
-from .player import N_EPISODES, SEEDS
 from .utils import EvaluationData, TrainingData
 
 # %% ../nbs/15_evaluation.ipynb 4
 def plot_all_metrics(
     agent_train_data: dict[str, TrainingData],
     agent_eval_data: dict[str, EvaluationData],
+    n_seeds: int,
+    n_episodes: int,
 ):
     sns.set_theme(style="whitegrid")
 
@@ -92,7 +93,7 @@ def plot_all_metrics(
         agent_names = list(agent_eval_data.keys())
 
         for agent, data in agent_eval_data.items():
-            rewards_matrix = np.array(data.rewards).reshape(len(SEEDS), N_EPISODES)
+            rewards_matrix = np.array(data.rewards).reshape(n_seeds, n_episodes)
 
             metrics["IQM"].append(rliable.metrics.aggregate_iqm(rewards_matrix))
             metrics["Median"].append(rliable.metrics.aggregate_median(rewards_matrix))
@@ -134,8 +135,8 @@ def plot_all_metrics(
             rewards1 = agent_eval_data[agent1].rewards
             rewards2 = agent_eval_data[agent2].rewards
 
-            rewards1_reshaped = np.array(rewards1).reshape(len(SEEDS), N_EPISODES)
-            rewards2_reshaped = np.array(rewards2).reshape(len(SEEDS), N_EPISODES)
+            rewards1_reshaped = np.array(rewards1).reshape(n_seeds, n_episodes)
+            rewards2_reshaped = np.array(rewards2).reshape(n_seeds, n_episodes)
 
             # Calculate the probability of improvement between the two agents
             prob_improvement = rliable.metrics.probability_of_improvement(
