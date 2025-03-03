@@ -16,73 +16,13 @@ import rliable.metrics
 import rliable.plot_utils
 import seaborn as sns
 
-from .utils import EvaluationData, TrainingData
+from .utils import EvaluationData
 
 # %% ../nbs/15_evaluation.ipynb 4
 def plot_all_metrics(
-    agent_train_data: dict[str, TrainingData],
     agent_eval_data: dict[str, EvaluationData],
-    n_seeds: int,
-    n_episodes: int,
 ):
     sns.set_theme(style="whitegrid")
-
-    def plot_learning_curve():
-        for agent, data in agent_train_data.items():
-            plt.plot(data.episodes, data.rewards, label=f"{agent} Learning Curve")
-        plt.xlabel("Episodes")
-        plt.ylabel("Reward")
-        plt.title("Learning Curves")
-        plt.legend()
-        plt.show()
-
-    def plot_training_stability():
-        for agent, data in agent_train_data.items():
-            plt.plot(
-                data.steps,
-                np.cumsum(data.rewards) / (np.arange(len(data.steps)) + 1),
-                label=f"{agent} Stability",
-            )
-        plt.xlabel("Steps")
-        plt.ylabel("Cumulative Average Reward")
-        plt.title("Training Stability")
-        plt.legend()
-        plt.show()
-
-    def plot_sample_efficiency():
-        for agent, data in agent_train_data.items():
-            plt.plot(
-                data.steps,
-                np.cumsum(data.rewards) / (np.arange(len(data.steps)) + 1),
-                label=f"{agent} Sample Efficiency",
-            )
-        plt.xlabel("Steps")
-        plt.ylabel("Cumulative Average Reward")
-        plt.title("Sample Efficiency Curve")
-        plt.legend()
-        plt.show()
-
-    def plot_time_to_convergence():
-        colors = sns.color_palette("tab10", n_colors=len(agent_train_data))
-
-        for i, (agent, data) in enumerate(agent_train_data.items()):
-            if len(np.shape(data.rewards)) == 1:
-                converged_step = np.argmax(
-                    np.diff(data.rewards) < 0.01
-                )  # Example threshold for convergence
-                plt.axvline(
-                    x=data.steps[converged_step],
-                    color=colors[i],
-                    label=f"{agent} Time to Convergence",
-                )
-            else:
-                print(f"Skipping {agent} due to invalid rewards data shape.")
-
-        plt.xlabel("Steps")
-        plt.ylabel("Reward")
-        plt.title("Time-to-Convergence")
-        plt.legend()
-        plt.show()
 
     def plot_aggregate_metrics():
         metrics = {
@@ -93,7 +33,7 @@ def plot_all_metrics(
         agent_names = list(agent_eval_data.keys())
 
         for agent, data in agent_eval_data.items():
-            rewards_matrix = np.array(data.rewards).reshape(n_seeds, n_episodes)
+            rewards_matrix = np.array(data.rewards).reshape(len(data.rewards), 1)
 
             metrics["IQM"].append(rliable.metrics.aggregate_iqm(rewards_matrix))
             metrics["Median"].append(rliable.metrics.aggregate_median(rewards_matrix))
@@ -135,8 +75,8 @@ def plot_all_metrics(
             rewards1 = agent_eval_data[agent1].rewards
             rewards2 = agent_eval_data[agent2].rewards
 
-            rewards1_reshaped = np.array(rewards1).reshape(n_seeds, n_episodes)
-            rewards2_reshaped = np.array(rewards2).reshape(n_seeds, n_episodes)
+            rewards1_reshaped = np.array(rewards1).reshape(len(rewards1), 1)
+            rewards2_reshaped = np.array(rewards2).reshape(len(rewards2), 1)
 
             # Calculate the probability of improvement between the two agents
             prob_improvement = rliable.metrics.probability_of_improvement(
@@ -237,10 +177,6 @@ def plot_all_metrics(
         plt.show()
 
     # Call all the plot functions
-    plot_learning_curve()
-    plot_training_stability()
-    plot_sample_efficiency()
-    plot_time_to_convergence()
     plot_aggregate_metrics()
     plot_probability_of_improvement()
     plot_performance_profiles()

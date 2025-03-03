@@ -13,6 +13,7 @@ from io import BytesIO
 
 import gymnasium as gym
 import numpy as np
+import torch
 from gymnasium.core import RenderFrame
 from gymnasium.envs.registration import register
 from matplotlib import pyplot as plt
@@ -62,13 +63,13 @@ class EnvConfig:
     init_state_of_charge: int = 200  # default: 20 kWh
     production_capacity: float = 720 / 6  # default: 72 kWh/day
     base_price: float = 0.065  # 0.65 NIS per kWh
-    night_price_factor: float = 1.1
-    high_demand_seasons_price_factor: float = 1.2
+    night_price_factor: float = 1.2
+    high_demand_seasons_price_factor: float = 1.3
     night_demand_factor: float = 1.1
     high_demand_seasons_demand_factor: float = 1.2
     base_demand_of_electricity: int = 75  # 75 * 100 Wh per timestep
     # battery safe range
-    battery_safe_range_ratios: tuple[float, float] = (0.2, 0.8)
+    battery_safe_range_ratios: tuple[float, float] = (0.1, 0.9)
     battery_degradation_factor: float = 0.9999
     # degradation when unsafe is 10 time faster
     battery_unsafe_degradation_exponent: int = 10
@@ -330,6 +331,9 @@ class ElectricityMarketEnv(gym.Env):
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         """Resets the environment to the initial state."""
+        np.random.seed(seed)
+        if seed is not None:
+            torch.manual_seed(seed)
         super().reset(seed=seed, options=options)
         self._timestep = 0
         self._current_state_of_charge = self._init_state_of_charge
