@@ -184,7 +184,7 @@ class ModelAgent(Agent):
         self.model.save(str(model_path))
 
     def load_model(self, model_path: Path) -> None:
-        self.model.load(str(model_path))
+        self.model = self.model.load(str(model_path), env=self.env)
 
 
 class MaskableAgent(Agent):

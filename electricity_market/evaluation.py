@@ -9,6 +9,7 @@ __all__ = ['plot_all_metrics']
 import itertools
 import pickle
 from collections import defaultdict
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +17,14 @@ import rliable.metrics
 import rliable.plot_utils
 import seaborn as sns
 
+from .env import ElectricityMarketEnv
+from electricity_market.player import (
+    A2CAgent,
+    MaskablePPOAgent,
+    MaskableRandomAgent,
+    expert_knowledge_action_masks,
+    is_action_safe,
+)
 from .utils import EvaluationData
 
 # %% ../nbs/15_evaluation.ipynb 4
