@@ -283,6 +283,12 @@ class MaskablePPOAgent(ModelAgent, MaskableAgent):
         self.optimized_hyperparameters = {}
         self.env_config = env_config or EnvConfig()
 
+    def choose_action(self, obs_tensor):
+        action, _ = self.model.predict(
+            obs_tensor, deterministic=True, action_masks=MaskableAgent.mask_fn(self.env)
+        )
+        return action
+
     def optimize(self) -> None:
         """
         Optimize the agent with hyperparameters.
