@@ -15,7 +15,7 @@ started.
 
 ``` sh
 # make sure electricity_market package is installed in development mode
-$ pip install -e .
+$ pip install -e '.[dev]'
 
 # make changes under nbs/ directory
 # ...
@@ -35,33 +35,20 @@ Install latest from the GitHub
 $ pip install git+https://github.com/techofer/02360018_final_project.git
 ```
 
-or from [conda](https://anaconda.org/techofer/02360018_final_project)
-
-``` sh
-$ conda install -c techofer 02360018_final_project
-```
-
-or from [pypi](https://pypi.org/project/02360018_final_project/)
-
-``` sh
-$ pip install 02360018_final_project
-```
 
 ### Documentation
 
 Documentation can be found hosted on this GitHub
 [repository](https://github.com/techofer/02360018_final_project)’s
 [pages](https://techofer.github.io/02360018_final_project/).
-Additionally you can find package manager specific guidelines on
-[conda](https://anaconda.org/techofer/02360018_final_project) and
-[pypi](https://pypi.org/project/02360018_final_project/) respectively.
 
-## How to use
-
-Fill me in please! Don’t forget code examples:
-
-``` python
-1+1
+### Trained Models
+```shell
+./trained_models/
 ```
 
-    2
+### TensorBoard
+
+```shell
+tensorboard --logdir=./tensorboard
+```
